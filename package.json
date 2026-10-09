@@ -1,0 +1,22 @@
+{
+  "name": "visionswap",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Private SOL sends and private token buys/sells on Solana, built on a zero-knowledge shielded pool.",
+  "workspaces": [
+    "sdk",
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "test": "npm run test -w sdk && npm run test -w server && npm run test -w web",
+    "typecheck": "npm run typecheck -w sdk && npm run typecheck -w server && npm run typecheck -w web",
+    "build": "npm run build -w web",
+    "start": "npm run start -w server",
+    "dev:web": "npm run dev -w web",
+    "dev:server": "npm run dev -w server"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

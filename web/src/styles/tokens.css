@@ -1,0 +1,43 @@
+:root {
+  --paper: #f4f2f7;
+  --paper-2: #ebe7f1;
+  --card: #fbfaff;
+  --ink: #160a24;
+  --ink-2: #4a4158;
+  --ink-3: #6b6378; /* small grey text stays readable (4.5:1 or more on every light background) */
+  --line: rgba(22, 10, 36, 0.12);
+  --line-strong: rgba(22, 10, 36, 0.22);
+  --violet: #8804fe;
+  --violet-deep: #5b02ad;
+  --violet-ink: #3a0275;
+  --violet-soft: #efe4ff;
+  --lens: #12022e;
+  --ok: #0f8a5f;
+  --warn: #b25a00;
+  --bad: #c0263d;
+
+  --serif: "Fraunces", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --sans: "Hanken Grotesk", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  --radius: 18px;
+  --radius-sm: 10px;
+  --gutter: clamp(16px, 4vw, 48px);
+  --max: 1240px;
+  --ease: cubic-bezier(0.2, 0.7, 0.1, 1);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --paper: #0e0716;
+  --paper-2: #170d24;
+  --card: #1a1028;
+  --ink: #f3eefa;
+  --ink-2: #c9bfd8;
+  --ink-3: #93889f;
+  --line: rgba(243, 238, 250, 0.12);
+  --line-strong: rgba(243, 238, 250, 0.24);
+  --violet-soft: #2a0f4d;
+  --violet-ink: #d7b8ff;
+  color-scheme: dark;
+}

@@ -1,0 +1,3260 @@
+/* ───────── app layout ───────── */
+.app-page {
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 500px at 85% -10%, rgba(136, 4, 254, 0.08), transparent 60%),
+    var(--paper);
+}
+.app-main {
+  padding-top: 96px;
+  padding-bottom: 80px;
+}
+.net-badge .faucet {
+  margin-left: 12px;
+  color: #6a4300;
+}
+.net-badge {
+  display: inline-block;
+  margin: 0 0 16px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #fff3d6;
+  color: #6a4300;
+  font-size: 13px;
+  font-weight: 500;
+}
+.app-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.82fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.main-card {
+  position: relative;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  padding: 22px;
+  box-shadow: 0 40px 80px -60px rgba(22, 10, 36, 0.55);
+  min-height: 520px;
+}
+
+.bal-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 4px 4px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.bal-mascot {
+  width: 84px;
+  flex: none;
+}
+.bal-mascot .eyes-tile {
+  border-radius: 20px;
+}
+.bal-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.bal-num {
+  font-family: var(--serif);
+  font-size: clamp(30px, 4vw, 42px);
+  font-weight: 560;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+.small {
+  font-size: 14px;
+}
+.disc {
+  flex: none;
+  margin-left: auto;
+  align-self: flex-start;
+}
+
+.banner {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  font-size: 15px;
+}
+.banner.bad {
+  background: #fde8ec;
+  color: #7a1426;
+}
+.banner > button {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: -11px -10px -11px 0;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  font-size: 22px;
+  line-height: 1;
+  color: inherit;
+}
+.banner > button:hover {
+  background: rgba(22, 10, 36, 0.06);
+}
+
+/* tabs */
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  padding: 4px;
+  margin: 18px 0 6px;
+  background: var(--paper-2);
+  border-radius: 999px;
+}
+.tabs button {
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  padding: 10px 0;
+  border-radius: 999px;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  transition:
+    background 0.2s,
+    color 0.2s,
+    box-shadow 0.2s;
+}
+.tabs button.on {
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 6px 16px -10px rgba(22, 10, 36, 0.5);
+}
+
+/* forms */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 4px 4px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.field-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.field-top .muted {
+  font-weight: 400;
+}
+.amount {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px 0 18px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 18px;
+  background: var(--paper);
+  transition: border-color 0.2s;
+}
+.amount:focus-within {
+  border-color: var(--violet);
+}
+.field-hint {
+  font-size: 13px;
+  font-weight: 500;
+  color: #7a3c00;
+}
+.amount input {
+  flex: 1;
+  min-width: 0;
+  width: 100%; /* a form control with a % width never forces its column wider (phones) */
+  height: 64px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-family: var(--serif);
+  font-size: 32px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.unit {
+  font-weight: 600;
+  color: var(--ink-3);
+}
+.max {
+  flex: none;
+  min-height: 36px;
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 14px;
+  background: var(--violet-soft);
+  color: var(--violet-deep);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.addr,
+.select {
+  height: 52px;
+  border-radius: 14px;
+  border: 1.5px solid var(--line-strong);
+  background: var(--paper);
+  padding: 0 16px;
+  font-size: 14.5px;
+  outline: none;
+  width: 100%;
+}
+.addr:focus,
+.select:focus {
+  border-color: var(--violet);
+}
+.note {
+  font-size: 14.5px;
+  color: var(--ink-2);
+  line-height: 1.55;
+}
+.warn {
+  font-size: 14.5px;
+  color: #7a3c00;
+  background: #fff1df;
+  padding: 10px 12px;
+  border-radius: 12px;
+}
+.tiny {
+  font-size: 13px;
+  color: var(--ink-3);
+  text-align: center;
+}
+.btn.wide {
+  width: 100%;
+  min-height: 56px;
+  font-size: 13.5px;
+  /* a long token name takes a second line instead of running out of the button (small phones) */
+  white-space: normal;
+  text-align: center;
+  line-height: 1.25;
+  padding-block: 10px;
+  overflow-wrap: anywhere;
+}
+.rows {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.rows > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 14px;
+  font-size: 14.5px;
+}
+.rows > div + div {
+  border-top: 1px solid var(--line);
+}
+.rows dt {
+  color: var(--ink-2);
+}
+.rows dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  /* an amount stays on one line; its label wraps instead */
+  white-space: nowrap;
+  text-align: right;
+}
+.rows .total {
+  background: var(--paper);
+  font-weight: 600;
+}
+.quote {
+  min-height: 24px;
+}
+.quote-out {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 16px;
+}
+.quote-out small {
+  width: 100%;
+  padding-left: 30px;
+}
+.slip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.slip span {
+  margin-right: auto;
+}
+.slip button {
+  min-height: 38px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 13px;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+.slip button.on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+@media (max-width: 560px) {
+  /* six choices: the label takes its own line on phones */
+  .slip span {
+    flex-basis: 100%;
+    margin-bottom: 2px;
+  }
+  .slip {
+    gap: 5px;
+  }
+  .slip button {
+    min-height: 40px;
+    padding: 5px 10px;
+    font-size: 13px;
+  }
+}
+.tax-note {
+  margin-top: 6px;
+}
+/* price room and speed: one compact row that opens */
+/* the Buy form spending a Vision wallet's own SOL */
+.from-vision {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.trade-set {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0 14px;
+}
+.trade-set summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 20px;
+  min-height: 46px;
+  padding: 11px 0;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--ink-2);
+  list-style: none;
+}
+.trade-set summary::-webkit-details-marker {
+  display: none;
+}
+.trade-set summary::after {
+  content: "▾";
+  margin-left: auto;
+  color: var(--ink-3);
+}
+.trade-set[open] summary::after {
+  content: "▴";
+}
+.trade-set summary strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.trade-set[open] summary {
+  border-bottom: 1px solid var(--line);
+}
+.trade-set-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 0 14px;
+}
+.trade-set-body p {
+  margin: 0;
+}
+.slip-custom {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  gap: 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 0 10px 0 4px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.slip-custom.on {
+  border-color: var(--ink);
+}
+.slip-custom input {
+  width: 74px;
+  border: 0;
+  background: transparent;
+  padding: 3px 4px 3px 6px;
+  font-size: 16px; /* 16px or more, or iPhones zoom in when it's tapped */
+  outline: none;
+  text-align: right;
+}
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wpop-wait {
+  margin: 8px 0 0;
+  text-align: left;
+}
+.empty-state {
+  text-align: center;
+  padding: 40px 18px;
+}
+.empty-state p:first-child {
+  font-family: var(--serif);
+  font-size: 24px;
+}
+
+/* token picker */
+.tok-picker {
+  position: relative;
+}
+.tok-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 56px;
+  padding: 0 16px;
+  border-radius: 16px;
+  border: 1.5px solid var(--line-strong);
+  background: var(--paper);
+  font-size: 17px;
+  font-weight: 600;
+  text-align: left;
+}
+.tok-btn.empty {
+  color: var(--ink-3);
+  font-weight: 500;
+}
+.chev {
+  margin-left: auto;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg) translateY(-3px);
+}
+.tok-icon {
+  border-radius: 50%;
+  flex: none;
+  object-fit: cover;
+  background: var(--paper-2);
+}
+.tok-icon.mono {
+  display: inline-grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--violet-deep);
+  background: var(--violet-soft);
+}
+.tok-icon.empty {
+  display: inline-block;
+  border: 1.5px dashed var(--line-strong);
+}
+.tok-pop {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  background: var(--card);
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  box-shadow: 0 30px 60px -30px rgba(22, 10, 36, 0.5);
+  padding: 10px;
+  animation: fadeUp 0.25s var(--ease) both;
+}
+.tok-pop input {
+  width: 100%;
+  height: 46px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line-strong);
+  padding: 0 14px;
+  outline: none;
+  background: var(--paper);
+}
+.tok-pop input:focus {
+  border-color: var(--violet);
+}
+.tok-list {
+  max-height: 320px;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+.tok-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 9px 8px;
+  border-radius: 12px;
+  text-align: left;
+}
+.tok-row {
+  cursor: pointer;
+}
+.tok-row:hover,
+.tok-row.on {
+  background: var(--paper);
+}
+.tok-row.on {
+  box-shadow: inset 0 0 0 1.5px var(--violet-soft);
+}
+.tok-btn-sym {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tok-names {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.tok-names strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15.5px;
+}
+.tok-names small {
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+.verified {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--violet);
+  position: relative;
+  display: inline-block;
+}
+.verified::after {
+  content: "";
+  position: absolute;
+  left: 4.5px;
+  top: 2.5px;
+  width: 3.5px;
+  height: 6.5px;
+  border-right: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: rotate(45deg);
+}
+.tok-mint {
+  flex: none;
+  margin-left: auto;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.tok-note {
+  padding: 14px 8px;
+  color: var(--ink-3);
+  font-size: 14.5px;
+}
+.tok-note.bad {
+  color: var(--bad);
+}
+
+/* gates */
+.gate {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 26px 6px 6px;
+}
+.gate h2 {
+  font-size: clamp(30px, 3.6vw, 40px);
+  margin: 0;
+}
+.gate p {
+  color: var(--ink-2);
+}
+.wallet-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.wallet-list button {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  font-size: 16px;
+  font-weight: 600;
+  text-align: left;
+  transition:
+    transform 0.2s var(--ease),
+    border-color 0.2s;
+}
+.wallet-list button:hover {
+  transform: translateY(-1px);
+  border-color: var(--violet);
+}
+.wallet-list img {
+  border-radius: 9px;
+}
+.wallet-list small {
+  margin-left: auto;
+  color: var(--ink-3);
+  font-weight: 500;
+  font-size: 13px;
+}
+.deeplinks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* busy */
+.busy {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: start center;
+  padding-top: clamp(40px, 10vh, 110px);
+  border-radius: 28px;
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: fadeIn 0.25s ease both;
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+}
+.busy-in {
+  position: sticky;
+  top: 24vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  max-width: 320px;
+  padding: 20px;
+}
+.busy-mascot {
+  width: 150px;
+  margin-bottom: 8px;
+}
+.busy-mascot .eyes-tile {
+  border-radius: 28px;
+}
+.busy-step {
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 560;
+}
+.spinner {
+  margin-top: 8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2.5px solid var(--violet);
+  border-right-color: transparent;
+  animation: spin 0.8s linear infinite;
+}
+
+/* side panels */
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 18px 18px 14px;
+}
+.panel header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 12px;
+  margin-bottom: 10px;
+}
+.panel header h3 {
+  font-size: 22px;
+  white-space: nowrap;
+}
+.panel header .muted {
+  font-size: 13px;
+}
+.panel ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.waiting li,
+.vision li {
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.w-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin-bottom: 8px;
+}
+.w-top .muted {
+  font-size: 13.5px;
+}
+.bar {
+  height: 6px;
+  border-radius: 6px;
+  background: var(--paper-2);
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.bar i {
+  display: block;
+  height: 100%;
+  border-radius: 6px;
+  background: var(--violet);
+  transition: width 1s var(--ease);
+}
+.link-btn {
+  border: 0;
+  background: none;
+  padding: 2px 0;
+  color: var(--violet-deep);
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  cursor: pointer;
+}
+.link-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.v-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.v-name {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 18px;
+}
+.v-top .mono {
+  font-size: 13px;
+}
+.v-sol {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 13.5px;
+}
+.v-tokens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 4px;
+}
+.v-tokens .chip {
+  gap: 6px;
+}
+.v-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 20px;
+  margin-top: 2px;
+}
+.secret {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.secret code {
+  display: block;
+  word-break: break-all;
+  font-size: 12px;
+  background: var(--paper);
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px dashed var(--line-strong);
+}
+.activity li {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+  font-size: 14.5px;
+}
+.activity .muted {
+  font-size: 12.5px;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+.dot.shield,
+.dot.sweep {
+  background: var(--violet);
+}
+.dot.send,
+.dot.buy {
+  background: #2b2140;
+}
+.dot.sell {
+  background: #b07cff;
+}
+.notes ul {
+  display: grid;
+  gap: 10px;
+}
+.notes li {
+  position: relative;
+  padding-left: 18px;
+  font-size: 14.5px;
+  color: var(--ink-2);
+}
+.notes li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 9px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--violet);
+}
+
+@media (max-width: 980px) {
+  .app-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .app-main {
+    padding-top: 84px;
+  }
+}
+@media (max-width: 560px) {
+  .main-card {
+    padding: 16px;
+    border-radius: 22px;
+  }
+  .amount input {
+    font-size: 26px;
+    height: 58px;
+  }
+  .bal-mascot {
+    width: 64px;
+  }
+  .bal-num {
+    font-size: clamp(22px, 6.6vw, 34px);
+    white-space: nowrap;
+  }
+  .bal-text .eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.1em;
+  }
+}
+@media (max-width: 360px) {
+  .bal-head {
+    gap: 12px;
+  }
+  .bal-mascot {
+    width: 52px;
+  }
+}
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 12px 0;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.check input {
+  margin-top: 3px;
+  accent-color: var(--violet);
+}
+.small-btn {
+  min-height: 42px;
+  font-size: 12px;
+  padding: 0 18px;
+}
+
+.bal-usd {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.w-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 20px;
+}
+.banner.good {
+  background: #e7f6ee;
+  color: #0d4a31;
+}
+.banner.good strong {
+  font-weight: 700;
+}
+.banner.good .link-btn {
+  color: #0d4a31;
+}
+
+/* ───────── connected wallet ───────── */
+.wchip-box {
+  position: relative;
+}
+.wchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px 0 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--ink);
+  font: 500 13px/1 var(--sans);
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+.wchip:hover,
+.wchip[aria-expanded="true"] {
+  border-color: var(--violet);
+  box-shadow: 0 0 0 3px rgba(136, 4, 254, 0.14);
+}
+.wchip img {
+  border-radius: 6px;
+}
+.wchip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(15, 138, 95, 0.2);
+}
+.wchip-bal {
+  padding-left: 8px;
+  border-left: 1px solid var(--line);
+  opacity: 0.7;
+}
+.wpop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 10px);
+  width: min(320px, calc(100vw - 32px));
+  padding: 16px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 18px 50px rgba(22, 10, 36, 0.18);
+  z-index: 30;
+}
+.wpop-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.wpop-top img {
+  border-radius: 10px;
+}
+.wpop-top div {
+  display: grid;
+  gap: 3px;
+}
+.wpop-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ok);
+}
+.wpop-status i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+.wpop-addr {
+  margin: 12px 0;
+  padding: 10px;
+  font-size: 12px;
+  word-break: break-all;
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  border: 1px solid var(--line);
+}
+.wpop-rows {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 14px;
+  font-size: 13px;
+}
+.wpop-rows div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.wpop-rows dt {
+  opacity: 0.65;
+}
+.wpop-rows dd {
+  margin: 0;
+  font-weight: 600;
+}
+.wpop-actions {
+  display: flex;
+  gap: 8px;
+}
+.wpop-actions .btn {
+  flex: 1;
+}
+.connected-as {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  font-size: 14px;
+  border: 1px solid rgba(15, 138, 95, 0.35);
+  border-radius: var(--radius-sm);
+  background: rgba(15, 138, 95, 0.07);
+}
+.connected-as img {
+  border-radius: 6px;
+}
+@media (max-width: 560px) {
+  .wchip-bal {
+    display: none;
+  }
+  /* the wallet panel spans the screen under the header, whatever sits beside the chip */
+  .wpop {
+    position: fixed;
+    /* just under the 72px header (the same whether the header or the screen is its frame) */
+    top: 80px;
+    left: 16px;
+    right: 16px;
+    width: auto;
+  }
+}
+.v-unfinished {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--violet-soft);
+  color: var(--ink);
+}
+
+/* phones: the connected-wallet header must fit beside the logo and the menu button */
+@media (max-width: 520px) {
+  .hdr.app .hdr-in {
+    gap: 10px;
+  }
+  .hdr.app .brand span {
+    display: none;
+  }
+  .hdr.app .hdr-right {
+    min-width: 0;
+  }
+  .wchip {
+    max-width: 100%;
+    padding: 0 10px;
+  }
+}
+
+/* shield from: this wallet, or by QR code */
+.seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  margin: 12px 0 0;
+  background: var(--paper-2);
+  border-radius: 14px;
+}
+.seg button {
+  min-height: 42px;
+  border: 0;
+  background: transparent;
+  padding: 9px 0;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-2);
+  transition:
+    background 0.2s,
+    color 0.2s;
+}
+.seg button.on {
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 6px 16px -10px rgba(22, 10, 36, 0.5);
+}
+
+/* QR deposits */
+.qr-lead {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.qr-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--paper);
+}
+.qr-frame {
+  background: #fff;
+  border-radius: 16px;
+  padding: 6px;
+  line-height: 0;
+  box-shadow: 0 10px 30px -18px rgba(22, 10, 36, 0.5);
+}
+.qr-svg {
+  display: block;
+  width: 200px;
+  height: 200px;
+}
+.qr-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.qr-addr {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  word-break: break-all;
+  color: var(--ink);
+}
+.qr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.qr-side .tiny {
+  text-align: left;
+}
+.qr-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--violet-soft);
+  color: var(--ink);
+  font-size: 14.5px;
+  line-height: 1.45;
+}
+.qr-status.got {
+  background: rgba(15, 138, 95, 0.08);
+}
+.spinner.small {
+  margin: 0;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+}
+@media (max-width: 560px) {
+  .qr-card {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    text-align: center;
+  }
+  .qr-side {
+    align-items: center;
+  }
+  .qr-side .tiny {
+    text-align: center;
+  }
+  .qr-actions {
+    justify-content: center;
+  }
+  .qr-svg {
+    width: min(240px, 68vw);
+    height: auto;
+    aspect-ratio: 1;
+  }
+}
+
+/* accounts opened with a private key */
+.or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.or::before,
+.or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.key-start {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.key-start h3 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 22px;
+}
+.key-start p {
+  margin: 0;
+}
+.key-start .check {
+  margin: 0;
+}
+.key-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 8px;
+}
+.key-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1.5px dashed var(--line-strong);
+  background: var(--paper);
+}
+.key-box code {
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-all;
+  user-select: all;
+}
+.key-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.key-input {
+  width: 100%;
+  border-radius: 14px;
+  border: 1.5px solid var(--line-strong);
+  background: var(--paper);
+  padding: 12px 14px;
+  font-size: 16px;
+  line-height: 1.4;
+  resize: vertical;
+  outline: none;
+}
+.key-input:focus {
+  border-color: var(--violet);
+}
+.key-alt summary {
+  cursor: pointer;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--violet-deep);
+}
+.key-alt[open] summary {
+  margin-bottom: 12px;
+}
+.send-out {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.send-out .tiny {
+  text-align: left;
+}
+
+/* Text boxes stay at 16px or more: iPhones zoom the whole page in when a smaller one is tapped, and stay zoomed. */
+.addr,
+.select,
+.tok-pop input {
+  font-size: 16px;
+}
+
+.rows dd.txt,
+.rows .txt dd {
+  font-family: inherit;
+  /* words, not an amount: they wrap inside the card */
+  white-space: normal;
+  min-width: 0;
+}
+
+/* first screen: two equal ways in */
+.ways {
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+}
+.way {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 18px 18px;
+  border-radius: 20px;
+  border: 1.5px solid var(--line-strong);
+  background: var(--paper);
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.way:hover,
+.way:focus-visible {
+  transform: translateY(-1px);
+  border-color: var(--violet);
+  box-shadow: 0 14px 30px -22px rgba(91, 2, 173, 0.6);
+}
+.way-ico {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--violet-soft);
+  color: var(--violet-deep);
+}
+.way.qr .way-ico {
+  background: var(--violet);
+  color: #fff;
+}
+.way-txt {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.way-txt strong {
+  font-size: 17px;
+  font-weight: 700;
+}
+.way-txt span {
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+.way-go {
+  font-size: 20px;
+  color: var(--violet);
+}
+.center {
+  text-align: center;
+}
+.saved-key {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--violet-soft);
+}
+.saved-key p {
+  margin: 0;
+}
+.qr-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+}
+.qr-steps li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.25;
+  color: var(--ink-3);
+}
+.qr-steps li b {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--line);
+  font-size: 12px;
+}
+.qr-steps li.on {
+  border-color: var(--violet);
+  color: var(--ink);
+}
+.qr-steps li.on b {
+  background: var(--violet);
+  color: #fff;
+}
+.key-tail {
+  width: 100%;
+  height: 52px;
+  border-radius: 14px;
+  border: 1.5px solid var(--line-strong);
+  background: var(--paper);
+  padding: 0 14px;
+  font-size: 18px;
+  letter-spacing: 0.2em;
+  outline: none;
+}
+.key-tail:focus {
+  border-color: var(--violet);
+}
+.good-text {
+  color: #0a8a4a;
+  font-weight: 600;
+}
+@media (max-width: 520px) {
+  .way {
+    padding: 14px;
+    gap: 12px;
+  }
+  .way-ico {
+    width: 42px;
+    height: 42px;
+  }
+  .qr-steps li {
+    flex-direction: column;
+    align-items: flex-start;
+    font-size: 12px;
+  }
+}
+
+/* send: several recipients, when it goes out, sending it yourself */
+.recips {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.recip {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.recip.boxed {
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+.recip .field-top .link-btn.small {
+  font-size: 13px;
+}
+.mine-tag {
+  margin: -4px 0 0;
+  font-size: 13px;
+  color: var(--violet-deep);
+}
+.recip-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chip-btn {
+  min-height: 40px;
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--violet-deep);
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+.chip-btn:hover {
+  border-color: var(--violet);
+  background: var(--violet-soft);
+}
+.when {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.when-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.seg.when-seg {
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 8px;
+}
+.seg.when-seg button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.when-note {
+  margin: 8px 0 0;
+  text-align: left;
+}
+.self-send {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.self-send summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.self-send[open] summary {
+  margin-bottom: 10px;
+}
+.self-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.self-body p {
+  margin: 0;
+}
+.payer-list {
+  display: grid;
+  gap: 6px;
+}
+.payer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  font-size: 14px;
+  cursor: pointer;
+}
+.payer.on {
+  border-color: var(--violet);
+  background: var(--violet-soft);
+}
+.payer em {
+  margin-left: auto;
+  font-style: normal;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.gas-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--paper);
+}
+.gas-box code {
+  font-size: 13px;
+  word-break: break-all;
+}
+.gas-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* scheduled payments */
+.jobs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.job {
+  display: grid;
+  /* the status side never takes more than about half the row, so the amount and address keep their room */
+  grid-template-columns: minmax(0, 1fr) fit-content(55%);
+  gap: 4px 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.job:first-child {
+  border-top: 0;
+}
+.job-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.job-main strong {
+  font-size: 16px;
+}
+.job-main .mono {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.job-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  text-align: right;
+}
+.job-chip {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.job-chip.wait {
+  background: var(--violet-soft);
+  color: var(--violet-deep);
+}
+.job-chip.good {
+  background: rgba(10, 138, 74, 0.12);
+  color: #0a8a4a;
+}
+.job-chip.bad {
+  background: rgba(192, 38, 61, 0.1);
+  color: var(--bad);
+}
+.job-chip.mute {
+  background: var(--line);
+  color: var(--ink-3);
+}
+.job-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 20px;
+}
+.job-actions:empty {
+  display: none;
+}
+@media (max-width: 420px) {
+  .seg.when-seg button {
+    font-size: 13px;
+  }
+}
+
+/* shield: three ways to add SOL */
+.seg.seg-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+.seg.seg-2 {
+  grid-template-columns: 1fr 1fr;
+}
+/* send: "Pay from", the balance on a second line so both buttons stay the same height */
+.seg.seg-2 button small {
+  display: block;
+  font-size: 0.8em;
+  opacity: 0.75;
+}
+@media (max-width: 420px) {
+  .seg.seg-3 button {
+    font-size: 13px;
+    padding: 9px 2px;
+  }
+}
+
+/* payment links */
+.text-in {
+  height: 52px;
+  width: 100%;
+  border-radius: 14px;
+  border: 1.5px solid var(--line-strong);
+  background: var(--paper);
+  padding: 0 16px;
+  font-size: 16px;
+  outline: none;
+}
+.text-in:focus {
+  border-color: var(--violet);
+}
+.req-made {
+  gap: 14px;
+}
+.req-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--paper);
+}
+.req-card .qr-svg {
+  width: 180px;
+  height: 180px;
+}
+.req-side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.req-amount {
+  font-family: var(--serif);
+  font-size: 28px;
+  line-height: 1.1;
+}
+.req-note {
+  color: var(--ink-2);
+  font-size: 15px;
+}
+.req-link {
+  font-size: 12.5px;
+  line-height: 1.45;
+  word-break: break-all;
+  color: var(--ink-2);
+}
+.req-inline {
+  grid-column: 1 / -1;
+  margin-top: 8px;
+}
+.req-inline .req-made {
+  padding: 0;
+}
+@media (max-width: 560px) {
+  .req-card {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
+  .req-side {
+    align-items: center;
+  }
+  .req-card .qr-actions {
+    justify-content: center;
+  }
+}
+
+/* the public page that pays a request */
+.pay-wrap {
+  display: grid;
+  place-items: start center;
+  padding: clamp(28px, 6vw, 72px) 16px clamp(48px, 8vw, 96px);
+}
+.pay-card {
+  width: min(760px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: clamp(22px, 4vw, 40px);
+  border-radius: 28px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  box-shadow: 0 40px 80px -60px rgba(22, 10, 36, 0.55);
+}
+.pay-card h1 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: clamp(34px, 5vw, 52px);
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+}
+.pay-card p {
+  margin: 0;
+}
+.pay-to {
+  font-size: 15px;
+  color: var(--ink-2);
+}
+.pay-to code {
+  font-size: 14px;
+}
+/* the requester's own words: set apart from the page's text */
+.pay-note {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--line-strong);
+  border-radius: 4px 14px 14px 4px;
+  background: var(--paper);
+}
+.pay-note-tag {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.pay-note p {
+  font-size: 17px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.pay-pending {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 18px;
+  border-radius: 18px;
+  background: var(--violet-soft);
+  color: var(--violet-ink);
+}
+.pay-pending p {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.pay-copy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pay-fine {
+  text-align: left;
+}
+.pay-grid {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+  margin-top: 8px;
+}
+.pay-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 14px 34px -22px rgba(22, 10, 36, 0.55);
+}
+.pay-qr .qr-svg {
+  width: 210px;
+  height: 210px;
+}
+.pay-ways {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.pay-wallets {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pay-wallet {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    transform 0.15s;
+}
+.pay-wallet:hover {
+  border-color: var(--violet);
+  transform: translateY(-1px);
+}
+.pay-wallet img {
+  border-radius: 7px;
+}
+.pay-addr {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--paper);
+}
+.pay-addr code {
+  font-size: 13.5px;
+  word-break: break-all;
+}
+.pay-private {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--violet-soft);
+  color: var(--violet-ink);
+}
+.pay-private a {
+  font-weight: 700;
+  color: var(--violet-deep);
+}
+.pay-done {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 18px;
+  background: rgba(10, 138, 74, 0.08);
+}
+.pay-check {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: #0a8a4a;
+  color: #fff;
+  flex: none;
+}
+@media (max-width: 640px) {
+  .pay-grid {
+    grid-template-columns: 1fr;
+  }
+  .pay-qr {
+    justify-self: center;
+  }
+}
+
+/* ───────── calm details: status, feedback, touch targets ───────── */
+/* numbers line up as they change */
+.num,
+.bal-num,
+.bal-usd,
+.v-sol,
+.amount input,
+.job-main strong,
+.w-top strong,
+.wchip-bal,
+.quote-out strong {
+  font-variant-numeric: tabular-nums;
+}
+.tab-panel {
+  animation: fadeIn 0.2s ease both;
+}
+/* background work (a paid link moving in, a filled order's SOL coming home): one quiet line */
+.bg-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--violet-soft);
+  color: var(--violet-ink);
+  font-size: 14px;
+  line-height: 1.4;
+  animation: fadeIn 0.25s ease both;
+}
+.feedback-spot {
+  height: 0;
+}
+/* the same messages at the bottom of the screen, while the top of the card is scrolled away;
+   the page grows by its height meanwhile, so the last panel's buttons can still scroll clear of it */
+.app-page.dock-on {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 132px);
+}
+/* the same messages at the bottom of the screen, while the top of the card is scrolled away */
+.dock {
+  position: fixed;
+  z-index: 60;
+  left: 16px;
+  right: 16px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 10px 12px 10px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 18px 44px -18px rgba(22, 10, 36, 0.45);
+  font-size: 14.5px;
+  line-height: 1.45;
+  animation: fadeUp 0.25s var(--ease) both;
+}
+.dock.bad {
+  background: #fde8ec;
+  color: #7a1426;
+  border-color: transparent;
+}
+.dock.good {
+  background: #e7f6ee;
+  color: #0d4a31;
+  border-color: transparent;
+}
+.dock-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+}
+.dock-text {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.dock-link {
+  margin: 2px 0 0;
+  font-size: 13.5px;
+}
+.dock-x {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: -8px -6px -8px 0;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: inherit;
+  font-size: 22px;
+  line-height: 1;
+}
+/* row actions: text links with a full-size tap area, spaced so a thumb hits the one it means */
+.v-actions .link-btn,
+.w-actions .link-btn,
+.job-actions .link-btn,
+.panel-foot .link-btn {
+  min-height: 44px;
+  white-space: nowrap;
+}
+.panel-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 2px;
+}
+/* small links beside a label or in a line of text: a taller tap area, same look */
+.disc,
+.recip .field-top .link-btn,
+.from-vision .link-btn {
+  padding-block: 12px;
+  margin-block: -12px;
+}
+.vision li > p {
+  margin-top: 6px;
+}
+.vision li > p.v-unfinished {
+  margin-top: 8px;
+}
+/* a confirm that opens in place of the action it guards */
+.confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  padding: 6px 0;
+  animation: fadeIn 0.2s ease both;
+}
+.confirm-q {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.btn.confirm-yes {
+  --b: var(--ink);
+  min-height: 40px;
+  padding: 0 16px;
+}
+/* the quote's fine print, on one quiet line under the amount you get */
+.quote-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: -4px 0 0;
+  padding: 0 2px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.quote-facts > div {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.quote-facts dt {
+  white-space: nowrap;
+}
+.quote-facts dd {
+  margin: 0;
+  color: var(--ink-2);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.quote-facts dd.num {
+  white-space: nowrap;
+}
+@media (max-width: 560px) {
+  .quote-facts {
+    flex-direction: column;
+    gap: 2px;
+  }
+  .quote-facts > div {
+    justify-content: space-between;
+  }
+  .quote-facts dd {
+    text-align: right;
+  }
+}
+
+/* passkeys */
+.ways.compact .way {
+  padding: 14px 16px;
+}
+.ways.compact .way:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+.pk-ok {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(10, 138, 74, 0.08);
+}
+.pk-ok h3 {
+  margin: 0 0 4px;
+}
+.pk-badge {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 50%;
+  background: #0a8a4a;
+  color: #fff;
+}
+.btn.pk-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.check-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--ink-3);
+}
+/* signing out of this device: keep or clear the account's history here */
+.signout {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+.signout p {
+  margin: 0;
+}
+.signout-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+@media (max-width: 430px) {
+  .signout-actions .btn {
+    flex: 1 1 100%;
+  }
+}
+
+/* orders: limit, DCA, take profit / stop loss */
+.order-form {
+  gap: 14px;
+}
+.price-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.amount .unit.pre {
+  margin-right: -4px;
+  font-weight: 700;
+}
+.move-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip-btn.small {
+  padding: 5px 11px;
+  font-size: 13px;
+}
+.tp-sl {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+.order-sum {
+  margin: 0;
+  font-size: 14.5px;
+  color: var(--ink-2);
+}
+.order-sum.small {
+  font-size: 13px;
+  margin-top: -6px;
+}
+.slip.chips button {
+  min-width: 44px;
+}
+.job-note {
+  grid-column: 1 / -1;
+  margin: 2px 0 0;
+}
+.orders .job-main strong {
+  font-size: 15px;
+}
+/* take-profit in steps: price, share, remove */
+.add-step {
+  align-self: flex-start;
+  min-height: 44px;
+}
+.tp-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tp-step {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 84px 44px;
+  align-items: center;
+  gap: 6px;
+}
+.tp-n {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-3);
+  text-align: center;
+}
+.tp-step .amount {
+  padding: 0 10px 0 12px;
+  gap: 4px;
+  border-radius: 14px;
+}
+.tp-step .amount input {
+  height: 48px;
+  font-size: 16px;
+}
+.tp-del {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.tp-del:hover {
+  background: var(--line);
+}
+.tp-sum {
+  grid-column: 2 / -1;
+  margin-top: -2px;
+}
+.stop-field {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+/* an order row: its facts, how far it got, its fills, and changing it in place */
+.order-facts {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  min-width: 0;
+}
+.order-facts > span {
+  overflow-wrap: anywhere;
+}
+.order-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.order-bar {
+  display: inline-block;
+  width: 64px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+.order-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--violet);
+}
+.order-fills {
+  grid-column: 1 / -1;
+}
+.order-fills summary {
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  cursor: pointer;
+  color: var(--violet-deep);
+  font-weight: 600;
+}
+.order-fills ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.order-fills li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0 12px;
+  padding: 2px 0;
+  border-top: 1px dashed var(--line);
+}
+.order-fills li > span {
+  overflow-wrap: anywhere;
+}
+.orders .job-actions {
+  flex-wrap: wrap;
+  gap: 0 18px;
+}
+.orders .link-btn {
+  min-height: 44px;
+}
+.order-edit {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 6px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: var(--card);
+}
+.order-edit .amount input {
+  height: 54px;
+  font-size: 24px;
+}
+.order-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+@media (pointer: coarse) {
+  .order-form .slip.chips button,
+  .order-edit .slip.chips button,
+  .order-form .chip-btn.small,
+  .order-edit .chip-btn.small {
+    min-height: 44px;
+  }
+}
+@media (max-width: 480px) {
+  /* phones: the price gets the whole row (tiny prices are long), its share and remove go below */
+  .tp-step {
+    grid-template-columns: 16px minmax(0, 1fr) 44px;
+    gap: 6px 4px;
+  }
+  .tp-n {
+    grid-column: 1;
+  }
+  .tp-price {
+    grid-column: 2 / -1;
+  }
+  .tp-pct {
+    grid-column: 2;
+    width: 108px;
+  }
+  .tp-del {
+    grid-column: 3;
+  }
+}
+@media (max-width: 380px) {
+  .order-edit {
+    padding: 12px 10px;
+  }
+}
+
+/* deliveries: the update line, confirming a recipient, a payment's delivery facts, the owner's check */
+.banner.info {
+  align-items: center;
+  background: var(--violet-soft);
+  color: var(--violet-deep);
+}
+.banner.info > .btn {
+  width: auto;
+  height: auto;
+  min-height: 42px;
+  margin: 0;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: var(--paper);
+  font-size: 13px;
+}
+.ask-box {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1.5px solid var(--violet);
+  background: var(--violet-soft);
+}
+.ask-box p {
+  margin: 0;
+}
+.ask-one,
+.ask-addrs dd {
+  margin: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.ask-addrs {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+.ask-addrs dt {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.ask-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+}
+.a-delivery {
+  grid-column: 2 / -1;
+  display: grid;
+  gap: 4px;
+}
+.a-delivery p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.a-id {
+  font-size: 12.5px;
+}
+.sign-box {
+  display: grid;
+  gap: 8px;
+}
+.text-in.sign-in {
+  height: auto;
+  min-height: 84px;
+  padding: 10px 14px;
+  font-family: var(--mono);
+  resize: vertical;
+}
+.onward {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+}
+.dcheck h2 {
+  margin: 0;
+}
+.dcheck-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+@media (max-width: 360px) {
+  .dcheck-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* "Shield your SOL first": Send, Buy or Sell opened with nothing in the private balance yet */
+.sf-back {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(22, 10, 36, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: fadeIn 0.2s ease both;
+}
+.sf {
+  width: 100%;
+  max-width: 440px;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  padding: 26px 24px 20px;
+  border-radius: 24px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 30px 80px -30px rgba(22, 10, 36, 0.55);
+  animation: fadeUp 0.25s var(--ease) both;
+}
+.sf-ico {
+  display: inline-grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--violet-soft);
+  color: var(--violet-deep);
+}
+.sf h2 {
+  margin: 14px 0 6px;
+  font-size: 22px;
+}
+.sf-lead {
+  margin: 0 0 16px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+.sf-steps {
+  list-style: none;
+  counter-reset: sf;
+  margin: 0 0 16px;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+.sf-steps li {
+  counter-increment: sf;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  column-gap: 12px;
+}
+.sf-steps li::before {
+  content: counter(sf);
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--violet);
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+}
+.sf-steps b {
+  font-size: 15px;
+}
+.sf-steps span {
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.sf-note {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--violet-soft);
+  color: var(--violet-deep);
+  font-size: 14px;
+}
+.sf-btns {
+  display: grid;
+  gap: 8px;
+}
+
+/* Send: paying straight from the wallet */
+.seg.when-seg.two {
+  grid-template-columns: 1fr 1fr;
+}
+.job-bar {
+  grid-column: 1 / -1;
+  margin: 4px 0 2px;
+}
+.send-empty {
+  padding: 18px;
+  border-radius: 16px;
+  background: var(--violet-soft);
+  color: var(--violet-deep);
+}
+.send-empty p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ───────── Wallets tab: the Vision wallets, each row in a fixed place ───────── */
+@media (max-width: 420px) {
+  .tabs button {
+    font-size: 13px;
+  }
+}
+.wallets {
+  padding: 14px 4px 4px;
+  overflow-anchor: none;
+}
+.vw-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.vw-head h3 {
+  font-size: 22px;
+}
+.vw-head-text p {
+  margin: 2px 0 0;
+}
+.vw-intro {
+  margin: 8px 0 0;
+  text-align: left;
+}
+.vw-all {
+  align-items: center;
+  min-height: 44px;
+  margin: 8px 0 0;
+}
+.vw-all input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+/* its room is kept (so the list never moves), the control shows once two wallets can act */
+.vw-all.off {
+  visibility: hidden;
+}
+.vw-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  overflow-anchor: none;
+}
+.vw {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 6px 12px;
+  margin: 0 -8px;
+  padding: 14px 8px;
+  border-top: 1px solid var(--line);
+  transition: background 0.2s;
+}
+.vw.picked {
+  background: var(--violet-soft);
+}
+.vw > .vw-tags,
+.vw > .vw-line,
+.vw > .vw-acts,
+.vw > .vw-panel {
+  grid-column: 2 / -1;
+}
+.vw-check {
+  width: 18px;
+  height: 18px;
+  margin: 4px 0 0;
+  accent-color: var(--violet);
+}
+/* a tick box with a 44 px target around it, in its 20 px column */
+.vw-hit {
+  display: flex;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: -10px -12px 0;
+  padding-top: 10px;
+  cursor: pointer;
+}
+.vw-id {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.vw-name {
+  font-family: var(--serif);
+  font-size: 17px;
+  font-weight: 600;
+}
+.vw-label {
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.vw-addr {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.vw-addr .link-btn {
+  font-size: 12.5px;
+  padding-block: 12px;
+  margin-block: -12px;
+}
+.vw-bal {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  text-align: right;
+}
+.vw-bal strong {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.vw-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.vw-tags .chip {
+  gap: 6px;
+  font-size: 13px;
+}
+/* the status line keeps its room whether it says something or not, so a step or a result never moves the rows below */
+.vw-line {
+  margin: 0;
+  min-height: 3.2em;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+.vw-line .job-chip {
+  margin-right: 4px;
+}
+/* a link in the status line keeps a finger-sized target without making the line taller */
+.vw-line .link-btn {
+  padding-block: 12px;
+  margin-block: -12px;
+}
+.vw-next {
+  color: var(--violet-ink);
+}
+.vw-ok {
+  color: var(--ok);
+}
+.vw-bad {
+  color: var(--bad);
+}
+/* a step in progress takes exactly one line of the status line, like text */
+.vw-work {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 1.6em;
+  vertical-align: top;
+  color: var(--violet-ink);
+}
+.vw-work .spinner {
+  margin: 0;
+  flex: none;
+}
+/* in a row's status line a step wraps like the text around it (a long one on a phone takes a second line, never over the chip) */
+.vw-line .vw-work {
+  display: inline;
+  height: auto;
+}
+.vw-line .vw-work .spinner {
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: -2px;
+}
+.vw-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 18px;
+}
+.vw-acts .link-btn,
+.vw-more .link-btn {
+  min-height: 44px;
+  white-space: nowrap;
+}
+.vw-acts .btn {
+  min-height: 40px;
+  padding: 0 16px;
+}
+.vw-panel {
+  margin-top: 2px;
+}
+.vw-more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 18px;
+}
+.vw-rename {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.vw-rename .text-in {
+  flex: 1 1 200px;
+  height: 44px;
+  font-size: 16px;
+}
+.vw-rename .tiny {
+  flex-basis: 100%;
+  margin: 0;
+}
+.vw.done .vw-name,
+.vw.done .vw-bal {
+  color: var(--ink-3);
+}
+.vw-bulk {
+  position: sticky;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  background: var(--card);
+  box-shadow: 0 12px 28px -18px rgba(22, 10, 36, 0.5);
+}
+/* above the messages at the bottom of the screen while they show */
+.dock-on .vw-bulk {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 100px);
+}
+/* a batch started from the bar takes the bar's place, at least as tall, so nothing above it moves */
+.vw-batch {
+  display: flow-root;
+}
+/* only the short bar stays on screen; opened, its form sits in the page below the list instead of over it */
+.vw-bulk.open {
+  position: static;
+}
+.vw-bulk-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+.vw-bulk-top .link-btn {
+  min-height: 44px;
+}
+.vw-bulk-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.vw-emptied {
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.vw-emptied summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.vw-emptied ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.vw-emptied li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+.vw-emptied .vw-name {
+  font-size: 15px;
+}
+.vw-empty-tag {
+  margin-left: auto;
+}
+.vw-foot {
+  margin: 14px 0 0;
+}
+.vw-emptied .link-btn,
+.vw-foot .link-btn,
+.vw-fund > .link-btn {
+  min-height: 44px;
+}
+.vw-fund {
+  margin: 12px 0 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--paper);
+}
+.form.vw-fund {
+  padding: 16px;
+}
+.vw-fund p {
+  margin: 0 0 10px;
+}
+.vw-fund-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+}
+.stepper button {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--ink);
+  font-size: 20px;
+  cursor: pointer;
+}
+.stepper button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.stepper span {
+  min-width: 28px;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 700;
+}
+.vw-summary p {
+  margin: 0 0 10px;
+}
+@media (max-width: 480px) {
+  /* a result on a phone wraps further: three lines kept, so it never pushes the rows below */
+  .vw-line {
+    min-height: 4.8em;
+  }
+  /* the balance's second line wraps as its figures change: two lines kept */
+  .bal-sub {
+    min-height: 3em;
+    line-height: 1.5;
+  }
+  .vw-acts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .vw-acts .btn,
+  .vw-acts .link-btn {
+    width: 100%;
+    min-height: 44px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.2;
+  }
+  .vw-acts .link-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--line-strong);
+    text-decoration: none;
+  }
+  .vw-bulk-acts .btn {
+    flex: 1 1 100%;
+  }
+}
+
+/* ───────── a batch: one action across several Vision wallets, each row's status changing in place ───────── */
+.batch {
+  margin: 14px 0 6px;
+  padding: 14px 16px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  background: var(--paper);
+  overflow-anchor: none;
+}
+.batch-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 12px;
+  font-size: 15px;
+}
+.batch-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+.batch-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.batch-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+.batch-amt {
+  font-family: var(--mono);
+  font-size: 13px;
+  text-align: right;
+  white-space: nowrap;
+}
+.batch-row.done .batch-name,
+.batch-row.skipped .batch-name {
+  color: var(--ink-2);
+}
+/* one line each, whatever it says, so the rows below never move; a reason opens with a tap */
+.batch-st {
+  grid-column: 1 / -1;
+  min-width: 0;
+  min-height: 1.6em;
+  line-height: 1.6;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.batch-st:has(.batch-why.open) {
+  white-space: normal;
+}
+.batch-why {
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  overflow: hidden;
+  white-space: inherit;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.batch-why:focus-visible {
+  outline: 2px solid var(--violet);
+  outline-offset: 2px;
+}
+.batch-foot {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.batch-foot p {
+  margin: 0 0 6px;
+  text-align: left;
+}
+.batch-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+}
+.batch-acts .link-btn {
+  min-height: 44px;
+}
+/* Buy: the Vision wallets to buy with */
+.pick {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.pick li + li {
+  border-top: 1px solid var(--line);
+}
+.pick-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 6px 12px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.pick-row input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--violet);
+}
+.pick-row.on {
+  background: var(--violet-soft);
+}
+.pick li:first-child .pick-row {
+  border-radius: 13px 13px 0 0;
+}
+.pick li:last-child .pick-row {
+  border-radius: 0 0 13px 13px;
+}
+.pick li:only-child .pick-row {
+  border-radius: 13px;
+}
+.pick-name {
+  font-weight: 600;
+  min-width: 0;
+}
+.pick-amt {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.pacing .check {
+  margin-bottom: 0;
+}
+.vw-bulk-note {
+  margin: 0;
+  text-align: left;
+}
+.vw-bulk-go {
+  margin-top: 4px;
+}
+.vw-bulk-go .when-title {
+  font-size: 13px;
+}
+.batch-say {
+  display: grid;
+}
+.batch-say > p {
+  grid-area: 1 / 1;
+}
+.batch-say > .ghost {
+  visibility: hidden;
+}
+.batch-acts {
+  min-height: 44px;
+}
+.vw-bulk-what {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.vw-bulk-go > .link-btn {
+  align-self: flex-start;
+  min-height: 44px;
+}
+/* a transaction link sits in the status line like text, so a finished row is exactly as tall as a waiting one */
+.batch-st {
+  height: 1.6em;
+}
+.batch-st:has(.batch-why.open) {
+  height: auto;
+}
+.batch-st .link-btn {
+  min-height: 0;
+  padding: 0;
+  vertical-align: baseline;
+}
+.vw-bulk-acts[hidden] {
+  display: none;
+}

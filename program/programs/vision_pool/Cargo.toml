@@ -1,0 +1,30 @@
+[package]
+name = "vision_pool"
+version = "1.0.0"
+description = "VisionSwap shielded SOL pool"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "vision_pool"
+
+[features]
+default = []
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+idl-build = ["anchor-lang/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+anchor-lang = "=0.31.1"
+solana-bn254 = "=2.2.2"
+solana-poseidon = "=2.2.1"
+bytemuck = { version = "1", features = ["derive", "min_const_generics"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "allow" }

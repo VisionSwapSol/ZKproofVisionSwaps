@@ -1,0 +1,32 @@
+{
+  "circuit": "transaction.circom (levels 26, 2 in, 2 out)",
+  "r1csSha256": "7291e7b10b61eca6e8a352e6642ab1289e3313a07856571b0bc21d909f1ac8f8",
+  "phase1": {
+    "file": "ppot_0080_15.ptau",
+    "sha256": "4a8eb5a754ed4710d6ad603c2e1a89c72325a448e4474f8694d2c71c7c272f3d",
+    "source": "PSE Perpetual Powers of Tau, contribution 80"
+  },
+  "contributions": [
+    {
+      "name": "VisionSwap contribution 1",
+      "hash": "7fda8d894ecbac65129d55edbb85b3abe7f51faebff571b11c122b350c4505e0ccd1e4e4d0e6af4531b93cee4839c13f2cfb64028c288c5d41a108a22dc55d21"
+    },
+    {
+      "name": "VisionSwap contribution 2",
+      "hash": "ab5772f015a585c8b8db0f9488a62b6f3194347c119ac04068554c7080deb324fcb50b21e8c6ee992a999294016db906994aa9202f1f6d12b7adb53a15f65c43"
+    },
+    {
+      "name": "VisionSwap contribution 3",
+      "hash": "28cbf31bf5fd57de760f5560eea999326f11a125c541bc5dbc55354a4bb70e709313598963dde11afb9299bab912b0341fa99328e02373a495bd0365f1b95beb"
+    }
+  ],
+  "beacon": {
+    "hash": "00000000000000000000045a37b23193fe70e237ddddf4b28c761d75534f909b",
+    "iterationsExp": 10,
+    "source": "Bitcoin block 969748"
+  },
+  "finalZkeySha256": "def9e70c4df55211f043444369a421272fb13a08294bda3ce64c033c7f7b88c6",
+  "verificationKeySha256": "1cfd5fcb0455d41369766b616afb4f24a2871a1e4905b558bf58243bd7570995",
+  "createdAt": "2026-10-03T17:30:19.229Z",
+  "wasmSha256": "e2ef150c56a9ffcb534eb84a11fd923ca02d3815a97039789c4c6fcf1424b0b2"
+}

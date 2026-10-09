@@ -1,0 +1,17 @@
+{
+  "name": "@visionswap/circuits",
+  "private": true,
+  "version": "1.0.0",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "setup": "node scripts/setup.mjs",
+    "test": "node scripts/test.mjs"
+  },
+  "dependencies": {
+    "circomlib": "2.0.5",
+    "snarkjs": "0.7.6",
+    "poseidon-lite": "0.3.0"
+  }
+}

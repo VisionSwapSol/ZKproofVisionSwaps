@@ -67,15 +67,38 @@ test("split: the parts add up to the total exactly", () => {
 
 test("split with variation: every part within 3% of an even share, and not all alike", () => {
   const total = 5n * SOL;
+  let gridded = 0;
   for (let r = 0; r < 50; r++) {
     const parts = splitAmounts(total, 5, true);
     const even = Number(total) / 5;
     for (const p of parts) assert.ok(Math.abs(Number(p) - even) / even <= 0.0301, `${p} vs ${even}`);
-    // rounded to 0.0001 SOL, except the last one, which carries the rounding
-    for (const p of parts.slice(0, -1)) assert.equal(p % 100_000n, 0n);
+    // to the lamport: no shared grid (0.0001 SOL, or even 1,000 lamports) that would mark the parts as one batch
+    gridded += parts.filter((p) => p % 1_000n === 0n).length;
   }
+  assert.ok(gridded < 5, `${gridded} of 250 parts on a 1,000-lamport grid`);
   const parts = splitAmounts(total, 4, true, seq([0, 1, 0.25, 0.75]));
   assert.ok(new Set(parts.map(String)).size > 1);
+});
+
+test("split rounding goes to parts picked at random, not always the last", () => {
+  // even weights (0.5 moves nothing), then the one lamport of rounding goes where the next draw says
+  assert.deepEqual(splitAmounts(10n, 3, true, seq([0.5, 0.5, 0.5, 0])), [4n, 3n, 3n]);
+  assert.deepEqual(splitAmounts(10n, 3, true, seq([0.5, 0.5, 0.5, 0.4])), [3n, 4n, 3n]);
+  assert.deepEqual(splitAmounts(11n, 3, true, seq([0.5, 0.5, 0.5, 0.9, 0.1])), [4n, 3n, 4n]);
+});
+
+test("batch randomness comes from the secure source by default", () => {
+  // Math.random is never called for amounts or gaps
+  const real = Math.random;
+  Math.random = () => {
+    throw new Error("Math.random used");
+  };
+  try {
+    splitAmounts(5n * SOL, 4, true);
+    gapMs("spaced");
+  } finally {
+    Math.random = real;
+  }
 });
 
 test("all of it keeps each wallet's reserve, in whole thousands of lamports", () => {
@@ -143,6 +166,21 @@ test("try those again: failed and stopped wallets get another turn at today's pr
   assert.equal(r.items[1].error, undefined);
   assert.equal(r.items[1].minOut, undefined);
   assert.equal(r.items[1].tries, undefined);
+});
+
+test("a spaced-out wallet that made its joins at a turn of their own: a try again spaces its joins out again", () => {
+  const b = batch("buyNew", [
+    { status: "done", joined: true },
+    { status: "failed", error: "no route", joined: true },
+  ]);
+  const r = retryFailed(b, 1);
+  assert.equal(r.items[0].joined, true, "a finished wallet is left as it is");
+  assert.equal(r.items[1].status, "waiting");
+  assert.equal(r.items[1].joined, undefined);
+  // a busy server's second try is the same payment turn: its joins are already made
+  const again = afterFailure(b, { amount: "1", status: "running", joined: true }, "Too many requests", false);
+  assert.equal(again.again, true);
+  assert.equal(again.item.joined, true);
 });
 
 test("a reloaded batch waits for Continue; a finished one doesn't", () => {

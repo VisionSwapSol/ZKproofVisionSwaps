@@ -34,6 +34,8 @@ const PATHS = {
   sliders: "M4 7h9 M17 7h3 M15 5v4 M4 17h3 M11 17h9 M9 15v4",
   trend: "M3 17.5l6-6 4 4 8-8 M15 7.5h6v6",
   steps: "M4 19h4v-4h4v-4h4V7h4 M20 4v3",
+  phone: "M8 2.5h8a1.5 1.5 0 0 1 1.5 1.5v16a1.5 1.5 0 0 1-1.5 1.5H8A1.5 1.5 0 0 1 6.5 20V4A1.5 1.5 0 0 1 8 2.5z M10.5 5.5h3 M11.5 18.5h1",
+  download: "M12 3.5v11 M7.5 10l4.5 4.5 4.5-4.5 M4.5 16.5V19a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5v-2.5",
 } as const;
 
 export type IconName = keyof typeof PATHS;

@@ -3,6 +3,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { fmt, type State } from "../../lib/engine";
 import { short } from "../../lib/net";
 import { copyText } from "./Panels";
+import { useCloseRequest } from "../../lib/closereq";
 
 /** The connected wallet, always in view: icon, address and balance, with a small panel for details. */
 export function WalletChip({ st }: { st: State }) {
@@ -12,6 +13,8 @@ export function WalletChip({ st }: { st: State }) {
   const box = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const first = useRef<HTMLButtonElement>(null);
+  // Back (in the Android app) closes the panel first
+  useCloseRequest(open, () => setOpen(false));
   useEffect(() => {
     if (!open) return;
     // the panel's first action takes the focus, so the keyboard goes straight on from the chip

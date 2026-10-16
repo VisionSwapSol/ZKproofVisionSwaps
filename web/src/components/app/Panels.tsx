@@ -1,15 +1,24 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { DELIVERY_FEE } from "@visionswap/sdk";
 import { engine, fmt, fmtDown, PAY_OPEN_TEXT, WINDOW_LABEL, type Activity, type Job, type State, type WalletLike, type WalletPay } from "../../lib/engine";
 import { payOpen } from "../../lib/walletpay";
-import { isLive } from "../../lib/jobs";
+import { goAtOf, isLive } from "../../lib/jobs";
 import { explorer, formatUnits, short } from "../../lib/net";
 import { TokenIcon } from "./TokenPicker";
 import { copyText } from "../../lib/copy";
 import { useTokenMeta } from "../../lib/tokenmeta";
 import { checkedText } from "../../lib/hops";
 import { walletsName } from "../../lib/vwallets";
+import { groupByDay, pageOf, type ActivityFilter } from "../../lib/activity";
+import { useMasked } from "../../lib/masked";
+import { maskText } from "../../lib/money";
+import "../../lib/features"; // (declares the build-time switch __VS_RECEIPTS__)
+import { ProveControl } from "./ProveControl";
+import { ListedWarning } from "./Listed";
+
+/** Payment receipts: in the build only when switched on (lib/features.ts: the test stays here, so the bundler can drop it). */
+const ReceiptMaker = typeof __VS_RECEIPTS__ === "boolean" && __VS_RECEIPTS__ ? lazy(() => import("./Receipt").then((m) => ({ default: m.ReceiptMaker }))) : null;
 
 /** Whether a typed wallet address parses, so a malformed one is caught before the confirm (the engine checks again before sending). */
 export const looksLikeAddress = (a: string) => {
@@ -22,7 +31,9 @@ export const looksLikeAddress = (a: string) => {
 };
 
 /** Said under an address box while what's typed isn't a wallet address. */
-const BadAddress = ({ to }: { to: string }) => (to && !looksLikeAddress(to) ? <p className="small warn">That doesn't look like a Solana address.</p> : null);
+// (an address on the published sanctions list is told here at once, checked in the browser)
+const BadAddress = ({ to }: { to: string }) =>
+  to && !looksLikeAddress(to) ? <p className="small warn">That doesn't look like a Solana address.</p> : <ListedWarning to={to || null} />;
 
 const ago = (t: number) => {
   const s = Math.max(1, Math.round((Date.now() - t) / 1000));
@@ -83,7 +94,17 @@ export function ConfirmButton({
       </button>
     );
   return (
-    <span className="confirm" role="group" aria-label={ask}>
+    <span
+      className="confirm"
+      role="group"
+      aria-label={ask}
+      onKeyDown={(e) => {
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        e.stopPropagation();
+        setAsking(false);
+      }}
+    >
       <span className="confirm-q">{ask}</span>
       <button
         type="button"
@@ -126,15 +147,15 @@ export function WaitingRoom({ st, wallet }: { st: State; wallet: WalletLike | nu
   return (
     <section className="panel">
       <header>
-        <h3>Waiting room</h3>
-        <span className="muted">Screened, then added to the pool</span>
+        <h3>Joining your private balance</h3>
+        <span className="muted">In the waiting room: screened, then added in about {engine.waitLabel()}</span>
       </header>
       <ul className="waiting">
         {st.waiting.map((w) => {
           const left = w.readyAt != null ? Number(w.readyAt) - st.slot : 0;
           const done = left <= 0;
           const p = delay > 0 ? Math.min(1, Math.max(0, 1 - left / delay)) : 1;
-          const mins = Math.max(1, Math.ceil((left * 0.4) / 60));
+          const mins = engine.slotMinutes(left, true);
           return (
             <li key={w.inner}>
               <div className="w-top">
@@ -205,6 +226,8 @@ export function DepositAddresses({ st }: { st: State }) {
           const setTo = (v: string) => setDrafts((x) => ({ ...x, [d.index]: v }));
           const sendable = d.lamports > 5_000n ? d.lamports - 5_000n : 0n;
           const label = d.index === st.qrIndex ? "your deposit address" : `deposit address #${d.index + 1}`;
+          // what's left after a deposit (often its waiting-room account deposit, come back): it waits for this address's next one
+          const leftover = !enough && !d.held;
           return (
             <li key={d.index}>
               <div className="v-top">
@@ -282,6 +305,15 @@ export function DepositAddresses({ st }: { st: State }) {
                     autoComplete="off"
                   />
                   <BadAddress to={to} />
+                  {looksLikeAddress(to) && engine.paidBefore(to, d.address) && (
+                    <p className="small warn">Another of your addresses already sent SOL to this one. Sending from this address too shows on the chain that both belong to the same person.</p>
+                  )}
+                  {leftover && (
+                    <p className="small warn">
+                      Sending what's left here to a wallet you use shows on the chain that this deposit address and that wallet belong together. You can
+                      also leave it: it goes into the pool with this address's next deposit.
+                    </p>
+                  )}
                   <ConfirmButton
                     className="btn ghost small-btn"
                     label={say(`out${d.index}`, `Send all ${fmt(sendable, 6)} SOL`, "Sending…")}
@@ -327,10 +359,10 @@ export function DepositAddresses({ st }: { st: State }) {
  * would show Solscan this visitor's IP address next to a private payment.
  * People can paste the link wherever they're comfortable.
  */
-export function CopyLink({ sig, network }: { sig: string; network: string }) {
+export function CopyLink({ sig, network, label = "Copy transaction link" }: { sig: string; network: string; label?: string }) {
   return (
     <span title="Copies a Solscan link. Opening an explorer shows it your IP address, so paste it in a private window or through a VPN if that matters to you.">
-      <Copy text={explorer(sig, network)} label="Copy transaction link" />
+      <Copy text={explorer(sig, network)} label={label} />
     </span>
   );
 }
@@ -355,6 +387,7 @@ const JOB_STATUS: Record<Job["status"], [string, string]> = {
 /** When a job goes, in a few words, beside its status (anything longer goes in jobNote, on a line of its own). */
 function jobLine(j: Job, refreshing: boolean): string {
   if (refreshing) return "making a fresh proof…";
+  if (j.ripening && j.status === "stale") return `by ${clock(j.latest)} at the latest`;
   switch (j.status) {
     case "scheduled":
       return Date.now() > j.latest ? "still trying" : `within ${WINDOW_LABEL[j.window]} · by ${clock(j.latest)}`;
@@ -377,9 +410,14 @@ function jobNote(j: Job): string | null {
     case "scheduled":
     case "waiting":
       return j.note ?? null;
-    case "stale":
+    case "stale": {
       if (j.confirm) return `The pool fee changed: ${engine.addressName(j.to)} would get ${fmt(BigInt(j.confirm.amount))} SOL.`;
+      if (j.ripening) {
+        const left = engine.ripeIn(j);
+        return `Its notes are new, so it is handed to the relayer once ${left ? `about ${left} more note${left === 1 ? " (a deposit or payment by anyone) has" : "s (deposits and payments by anyone) have"}` : "more notes have"} joined the pool, or sent at ${clock(goAtOf(j))}, a moment picked at random within its window, if that hasn't happened by then. Either way it needs VisionSwap open until it shows Scheduled.`;
+      }
       return j.note ?? "A fresh proof is made for it while this page is open.";
+    }
     case "failed":
     case "unclear":
       return j.error ?? null;
@@ -427,10 +465,12 @@ export function WalletPays({ st }: { st: State }) {
       </header>
       <ul className="jobs">
         {st.pays.map((p) => {
-          const [chip, tone] = PAY_STATUS[p.status];
           const w = p.status === "waiting" ? st.waiting.find((x) => x.inner === p.inner) : undefined;
           // a handed-over payment is the scheduled payment made for it: its line follows that one
           const job = p.status === "scheduled" ? st.jobs.find((j) => j.to === p.to && j.amount === p.amount && j.created >= (p.sendingAt ?? 0)) : undefined;
+          // one whose note is still too new to prove for later isn't at the relayer yet
+          const ripening = !!job?.ripening && job.status === "stale";
+          const [chip, tone] = ripening ? ["Preparing", "wait"] : PAY_STATUS[p.status];
           const left = w?.readyAt != null ? Number(w.readyAt) - st.slot : 0;
           const line =
             p.status === "paying"
@@ -439,7 +479,7 @@ export function WalletPays({ st }: { st: State }) {
                 : "Approve in your wallet"
               : p.status === "waiting"
                 ? left > 0
-                  ? `Joining your private balance, about ${Math.max(1, Math.ceil((left * 0.4) / 60))} min left`
+                  ? `Joining your private balance, about ${engine.slotMinutes(left, true)} min left`
                   : st.pool && !st.pool.relayer
                     ? "Waiting for the relayer to come back"
                     : "Joining your private balance"
@@ -450,7 +490,9 @@ export function WalletPays({ st }: { st: State }) {
                       ? "Sent privately"
                       : job?.status === "cancelled"
                         ? "Cancelled under Scheduled payments; its SOL is in your private balance"
-                        : job && isLive(job.status) && job.latest > Date.now()
+                        : ripening
+                          ? `Handed to the relayer by ${clock(goAtOf(job!))} · keep VisionSwap open`
+                          : job && isLive(job.status) && job.latest > Date.now()
                           ? `Handed to the relayer · goes out by ${clock(job.latest)}`
                           : "Handed to the relayer · see Scheduled payments"
                     : p.status === "sent"
@@ -528,7 +570,11 @@ export function WalletPays({ st }: { st: State }) {
 /** Payments waiting to go out at their random moment, and how the recent ones went. */
 export function ScheduledPayments({ st }: { st: State }) {
   const { tap, say } = useTapped(st);
+  const [each, setEach] = useState(false);
   if (!st.jobs.length && st.aside === 0n) return null;
+  // four or more still to go to this account's own Vision wallets (funding several, say) fold into one row; each can be shown, with its Cancel
+  const toOwn = st.jobs.filter((j) => (j.status === "scheduled" || j.status === "sending" || j.status === "stale") && engine.visionIndexOf(j.to) != null);
+  const foldLive = toOwn.length >= 4;
   const live = st.jobs.filter((j) => j.status === "scheduled" || j.status === "sending" || j.status === "stale" || j.status === "delivering" || j.status === "waiting").length;
   // three or more that went out fold into one line (funding several wallets would fill the column otherwise); Activity keeps each one's link
   const sent = st.jobs.filter((j) => j.status === "sent" && !j.cancelPending);
@@ -574,8 +620,27 @@ export function ScheduledPayments({ st }: { st: State }) {
             </div>
           </li>
         )}
-        {(fold ? st.jobs.filter((j) => !sent.includes(j)) : st.jobs).map((j) => {
-          const [label, tone] = JOB_STATUS[j.status];
+        {foldLive && (
+          <li className="job wait">
+            <div className="job-main">
+              <strong className="num">{fmt(toOwn.reduce((s, j) => s + BigInt(j.amount), 0n))} SOL</strong>
+              <span className="muted small job-to">to {walletsName(toOwn.map((j) => engine.visionIndexOf(j.to)!))} (yours)</span>
+            </div>
+            <div className="job-side">
+              <span className="job-chip wait">{toOwn.length} scheduled</span>
+              <span className="small muted">by {clock(Math.max(...toOwn.map((j) => j.latest)))}</span>
+            </div>
+            <div className="job-actions">
+              <button type="button" className="link-btn" aria-expanded={each} onClick={() => setEach(!each)}>
+                {each ? "Hide them" : "Show each"}
+              </button>
+            </div>
+          </li>
+        )}
+        {(fold ? st.jobs.filter((j) => !sent.includes(j)) : st.jobs)
+          .filter((j) => !foldLive || each || !toOwn.includes(j))
+          .map((j) => {
+          const [label, tone] = j.ripening && j.status === "stale" ? ["Preparing", "wait"] : JOB_STATUS[j.status];
           const late = j.status === "scheduled" && Date.now() > j.latest;
           const line = jobLine(j, st.refreshingJob === j.id);
           const note = jobNote(j);
@@ -791,7 +856,22 @@ export function Deliveries({ st }: { st: State }) {
   );
 }
 
-export function ActivityList({ st }: { st: State }) {
+/** A round mark for each kind of activity: SOL moving in or out of the private balance, a payment, a trade. */
+const KIND_PATH: Record<Activity["kind"], string> = {
+  shield: "M12 3l7.5 3v5.5c0 4.6-3.1 8.2-7.5 9.5-4.4-1.3-7.5-4.9-7.5-9.5V6L12 3z M8.5 12l2.4 2.4L15.8 9.6",
+  sweep: "M12 3l7.5 3v5.5c0 4.6-3.1 8.2-7.5 9.5-4.4-1.3-7.5-4.9-7.5-9.5V6L12 3z M8.5 12l2.4 2.4L15.8 9.6",
+  merge: "M12 3l7.5 3v5.5c0 4.6-3.1 8.2-7.5 9.5-4.4-1.3-7.5-4.9-7.5-9.5V6L12 3z M8.5 12l2.4 2.4L15.8 9.6",
+  refund: "M12 3l7.5 3v5.5c0 4.6-3.1 8.2-7.5 9.5-4.4-1.3-7.5-4.9-7.5-9.5V6L12 3z M8.5 12l2.4 2.4L15.8 9.6",
+  send: "M12 19V5 M6 11l6-6 6 6",
+  buy: "M4 8h13l-3.5-3.5 M20 16H7l3.5 3.5",
+  sell: "M4 8h13l-3.5-3.5 M20 16H7l3.5 3.5",
+};
+const timeOf = (t: number) => new Date(t).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+
+export function ActivityList({ st, grouped = false, filter = "all", pageSize = 12 }: { st: State; grouped?: boolean; filter?: ActivityFilter; pageSize?: number }) {
+  const [masked] = useMasked();
+  const [shown, setShown] = useState(pageSize);
+  if (grouped) return <ActivityGroups st={st} filter={filter} shown={shown} more={() => setShown(shown + pageSize)} masked={masked} />;
   if (!st.activity.length) return null;
   // a delivery's Transaction ID is its own transfer's, as the ledger on this device knows it (never the pool spend's)
   const legs = engine.deliveryIds();
@@ -811,7 +891,7 @@ export function ActivityList({ st }: { st: State }) {
         {st.activity.slice(0, 12).map((a) => (
           <li key={a.t + a.text}>
             <span className={`dot ${a.kind}`} />
-            <span className="a-text">{a.text}</span>
+            <span className="a-text">{masked ? maskText(a.text) : a.text}</span>
             <span className="muted a-when">{ago(a.t)}</span>
             {a.sig && st.pool && (
               <span title="Copies a Solscan link without opening it, so the explorer never sees your IP from here.">
@@ -829,8 +909,66 @@ export function ActivityList({ st }: { st: State }) {
   );
 }
 
+/** The activity history by day, under the chosen chip, a page at a time (the extension's Activity screen). */
+function ActivityGroups({ st, filter, shown, more, masked }: { st: State; filter: ActivityFilter; shown: number; more: () => void; masked: boolean }) {
+  const legs = engine.deliveryIds();
+  const idOf = (a: Activity & { delivery: { hop: string; onward?: boolean } }) => {
+    if (a.delivery.onward) return a.sig ?? null;
+    const l = legs.get(a.delivery.hop);
+    return l?.tx2 ?? (a.sig && a.sig !== l?.tx1 ? a.sig : null);
+  };
+  const page = pageOf(st.activity, filter, shown);
+  if (!page.items.length) {
+    return (
+      <p className="small muted activity-empty">
+        {st.activity.length ? "Nothing of this kind yet." : "Nothing here yet. Your moves, trades and sends show here, kept on this device only."}
+      </p>
+    );
+  }
+  return (
+    <div className="activity-g">
+      {groupByDay(page.items, Date.now()).map((g) => (
+        <section key={g.label} className="activity-day" aria-label={g.label}>
+          <h4 className="activity-day-h">{g.label}</h4>
+          <ul className="activity activity-rows">
+            {g.items.map((a) => (
+              <li key={a.t + a.text}>
+                <span className={`a-ico ${a.kind}`} aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d={KIND_PATH[a.kind]} />
+                  </svg>
+                </span>
+                <span className="a-text">{masked ? maskText(a.text) : a.text}</span>
+                <span className="muted a-when">{timeOf(a.t)}</span>
+                {a.sig && st.pool && (
+                  <span className="a-link" title="Copies a Solscan link without opening it, so the explorer never sees your IP from here.">
+                    <Copy text={explorer(a.sig, st.pool.network)} label="Copy link" />
+                  </span>
+                )}
+                {a.delivery && <DeliveryFacts a={a as Activity & { delivery: { hop: string; to: string } }} id={idOf(a as Activity & { delivery: { hop: string } })} />}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+      {page.more && (
+        <button type="button" className="link-btn activity-more" onClick={more}>
+          Show more
+        </button>
+      )}
+      <div className="panel-foot">
+        <ConfirmButton label="Clear this list" ask="Clear the list on this device?" yes="Yes, clear it" onYes={() => engine.clearActivity()} />
+      </div>
+    </div>
+  );
+}
+
 export function Records({ st }: { st: State }) {
   const [withKey, setWithKey] = useState(false);
+  // ticking "Include my viewing key" asks first: once shared, it can't be taken back
+  const [askKey, setAskKey] = useState(false);
+  const [prove, setProve] = useState(false);
+  const [receipt, setReceipt] = useState(false);
   const download = () => {
     const blob = new Blob([engine.statement(withKey)], { type: "application/json" });
     const a = document.createElement("a");
@@ -847,16 +985,74 @@ export function Records({ st }: { st: State }) {
         <span className="muted">For an exchange or an accountant</span>
       </header>
       <p className="small muted">
-        Download a statement of your private balance and activity. Whoever you give it to can check it against the chain. It can't be
-        used to spend anything.
+        Download a statement of your private notes. Whoever you give it to can check that each note exists on-chain, and for notes that
+        came straight from a deposit, which wallet made it. It can't spend anything, and it doesn't prove which notes are still unspent.
       </p>
       <label className="check">
-        <input type="checkbox" checked={withKey} onChange={(e) => setWithKey(e.target.checked)} />
-        <span>Include my viewing key (lets them see future notes too)</span>
+        <input
+          type="checkbox"
+          checked={withKey}
+          onChange={(e) => {
+            if (e.target.checked) setAskKey(true);
+            else setWithKey(false);
+          }}
+        />
+        <span>Include my viewing key: lets the holder see every note you've received, before and after today. It can't be taken back.</span>
       </label>
+      {askKey && (
+        <div className="vk-ask" role="group" aria-label="Include your viewing key?">
+          <p className="small">
+            <strong>Share your viewing key?</strong> Whoever holds it can see every note this account has received or will receive, with
+            amounts, for as long as you use the account. It can't be taken back.
+            {ReceiptMaker ? " To show where one payment came from, a payment receipt (below) shares far less." : ""} If you share it, you
+            can open a new account afterwards: notes it receives can't be seen with this key.
+          </p>
+          <div className="vk-row">
+            <button
+              type="button"
+              className="btn small-btn"
+              onClick={() => {
+                setWithKey(true);
+                setAskKey(false);
+              }}
+            >
+              Include it
+            </button>
+            <button type="button" className="link-btn" autoFocus onClick={() => setAskKey(false)}>
+              Leave it out
+            </button>
+          </div>
+        </div>
+      )}
       <button type="button" className="btn ghost small-btn" onClick={download}>
         Download statement
       </button>
+      <div className="records-hops">
+        <button type="button" className="link-btn" aria-expanded={prove} onClick={() => setProve(!prove)}>
+          Prove I control an address
+        </button>
+        {prove && (
+          <>
+            <p className="small muted">
+              For an exchange that asks you to show an address is yours: sign its message with your connected wallet, a deposit address or a
+              Vision wallet.
+            </p>
+            <ProveControl st={st} />
+          </>
+        )}
+      </div>
+      {ReceiptMaker && (
+        <div className="records-hops">
+          <button type="button" className="link-btn" aria-expanded={receipt} onClick={() => setReceipt(!receipt)}>
+            Prove where one payment came from
+          </button>
+          {receipt && (
+            <Suspense fallback={null}>
+              <ReceiptMaker st={st} />
+            </Suspense>
+          )}
+        </div>
+      )}
       <CheckSendingAddresses />
     </section>
   );

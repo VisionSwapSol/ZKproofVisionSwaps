@@ -3,6 +3,8 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  // switches for features built but off by default (see src/lib/features.ts)
+  define: { __VS_RECEIPTS__: JSON.stringify(process.env.VITE_RECEIPTS === "1") },
   server: {
     port: 5196,
     strictPort: true,
@@ -14,5 +16,7 @@ export default defineConfig({
     target: "es2022",
     sourcemap: false,
     chunkSizeWarningLimit: 2500,
+    // scripts/prerender.mjs reads it to link each prerendered page's own styles (then deletes it)
+    manifest: true,
   },
 });

@@ -1,16 +1,31 @@
 # Security policy
 
-VisionSwap is a live, non-custodial privacy pool on Solana mainnet. We take reports seriously and thank everyone who helps keep users safe.
+VisionSwap is a non-custodial, zero-knowledge shielded pool live on Solana mainnet. We value the work of security researchers and welcome every report.
 
 ## Reporting a vulnerability
 
-- Report privately through this repository's **Security** tab → **Report a vulnerability**. Please do not open a public issue.
-- Include what you found, how to reproduce it, and the impact you expect.
-- Do not test against other people's funds or the live pool's users. A local validator (`program/scripts/localnet.sh`) reproduces the full system.
+- Email **support@visionswap.net** with "Security" in the subject line. Please do not open a public issue or pull request.
+- Describe what you found, how to reproduce it and the impact you expect. A proof of concept against a local validator is the most helpful form.
+- Test only on your own setup: `program/scripts/localnet.sh` starts a local validator with the program. Never test against the live pool or other people's funds.
 
-We will acknowledge your report, keep you updated while we fix it, and credit you if you wish.
+We acknowledge every report, keep you informed while we work on it, and credit you publicly if you wish.
+
+## Responsible disclosure
+
+- Give us a reasonable time to investigate and ship a fix before sharing details with anyone else.
+- Do not access, modify or move funds or data that are not yours, and do not degrade the service for others.
+- Act in good faith and keep the details private until a fix is live.
 
 ## Scope
 
-- The Solana program (`program/`), the circuit and its setup artifacts (`circuits/`), the SDK (`sdk/`), the server (`server/`) and the web app (`web/`).
-- Program ID `VSwJY1r9S7nNUyvBzWYr1rBkEMyTAjDFGtixxLGpmt6` on Solana mainnet, and https://visionswap.net.
+- The Solana program (`program/`), program ID `VSwJY1r9S7nNUyvBzWYr1rBkEMyTAjDFGtixxLGpmt6` on mainnet.
+- The transaction circuit and its setup artifacts (`circuits/`).
+- The SDK (`sdk/`), the web app (`web/`) and VisionSwap for Chrome (`extension/`).
+- The website, https://visionswap.net.
+
+The same contact is published at `https://visionswap.net/.well-known/security.txt`.
+
+## Contact
+
+- Security reports: support@visionswap.net
+- Business, partnerships and press only: business@visionswap.net

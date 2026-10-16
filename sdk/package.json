@@ -2,7 +2,7 @@
   "name": "@visionswap/sdk",
   "private": true,
   "version": "1.0.0",
-  "license": "Apache-2.0",
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",

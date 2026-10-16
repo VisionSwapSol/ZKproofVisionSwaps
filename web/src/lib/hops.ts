@@ -1,4 +1,4 @@
-import { PublicKey, type Keypair } from "@solana/web3.js";
+import { PublicKey, VersionedMessage, type Keypair } from "@solana/web3.js";
 import bs58 from "bs58";
 import {
   DELIVERY_FEE,
@@ -11,6 +11,8 @@ import {
   n2Message,
   predictCredit,
   readNonceAccount,
+  readShape,
+  type DeliveryShape,
   signDelivery,
   verifyDelivery,
   type RecipientClass,
@@ -45,13 +47,29 @@ export function newerVersion(a: string, b: string): boolean {
 /**
  * A private payment of exactly `amount` to an outside address: what leaves the private balance
  * (`withdraw`), and how it splits. The hop receives `amount` plus the delivery fee and pays that
- * fee itself, so the recipient gets `amount` to the lamport.
+ * fee itself, so the recipient gets `amount` to the lamport. `deliveryFee`: the fee of the shape the
+ * payment's transfer takes (see DeliveryShape; the fixed one's unless one was drawn).
  */
-export function payQuote(amount: bigint, relayerFee: bigint, feeBps: number, treasury?: TreasuryView) {
-  const withdraw = deliveryWithdraw(amount, relayerFee, feeBps, treasury);
+export function payQuote(amount: bigint, relayerFee: bigint, feeBps: number, treasury?: TreasuryView, deliveryFee: bigint = DELIVERY_FEE) {
+  const withdraw = deliveryWithdraw(amount, relayerFee, feeBps, treasury, deliveryFee);
   const credit = predictCredit(withdraw, relayerFee, feeBps, treasury);
-  return { withdraw, relayerFee, protocolFee: withdraw - relayerFee - credit, deliveryFee: DELIVERY_FEE, toRecipient: credit - DELIVERY_FEE };
+  return { withdraw, relayerFee, protocolFee: withdraw - relayerFee - credit, deliveryFee, toRecipient: credit - deliveryFee };
 }
+
+/** A delivery shape as a leg, a job or the relayer keeps it ({ fee: "12000", cuL1, cuN2, v0 }). */
+export type ShapeJson = { fee: string; cuL1: number; cuN2: number; v0: boolean };
+
+/** The shape kept with a leg or a job, checked (undefined when it has none, or one that doesn't read: the fixed one then). */
+export function shapeOf(raw: unknown): DeliveryShape | undefined {
+  try {
+    return readShape(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+/** What a delivery's sending address pays the network for its transfer: its shape's fee, or the fixed one. */
+export const feeOfShape = (raw: unknown): bigint => shapeOf(raw)?.fee ?? DELIVERY_FEE;
 
 /**
  * What a delivery from a hop holding `balance` sends on (the hop pays the fee and ends at zero), or
@@ -59,8 +77,8 @@ export function payQuote(amount: bigint, relayerFee: bigint, feeBps: number, tre
  * least the rent minimum once the fee is taken: what it holds then is what it sends, so that must be
  * at least the rent minimum, whoever the recipient is ("too-small"; the SOL can go into the pool instead).
  */
-export function finishAmount(balance: bigint, rentMin: bigint): { lamports: bigint } | { problem: "empty" | "too-small" } {
-  const lamports = balance - DELIVERY_FEE;
+export function finishAmount(balance: bigint, rentMin: bigint, fee: bigint = DELIVERY_FEE): { lamports: bigint } | { problem: "empty" | "too-small" } {
+  const lamports = balance - fee;
   if (lamports <= 0n) return { problem: "empty" };
   if (lamports < rentMin) return { problem: "too-small" };
   return { lamports };
@@ -72,15 +90,18 @@ const b58 = (u: Uint8Array) => bs58.encode(u);
 
 export type NonceLease = { account: string; value: string; authority: string };
 
-/** The hop's signature over the delivery sent now (L1, on a recent blockhash), as the relayer takes it. */
-export function l1Sig(hop: Keypair, to: PublicKey, lamports: bigint, blockhash: string): string {
-  return b58(signDelivery(l1Message({ hop: hop.publicKey, to, lamports, blockhash }), hop));
+/** The hop's signature over the delivery sent now (L1, on a recent blockhash), as the relayer takes it, in `shape` (none: the fixed one). */
+export function l1Sig(hop: Keypair, to: PublicKey, lamports: bigint, blockhash: string, shape?: DeliveryShape): string {
+  return b58(signDelivery(l1Message({ hop: hop.publicKey, to, lamports, blockhash, ...(shape ? { shape } : {}) }), hop));
 }
 
-/** The hop's signature over the delivery on a durable nonce (N2), which the relayer can send while the page is closed. */
-export function n2Sig(hop: Keypair, to: PublicKey, lamports: bigint, n: NonceLease): string {
+/** The hop's signature over the delivery on a durable nonce (N2), which the relayer can send while the page is closed, in `shape` (none: the fixed one). */
+export function n2Sig(hop: Keypair, to: PublicKey, lamports: bigint, n: NonceLease, shape?: DeliveryShape): string {
   return b58(
-    signDelivery(n2Message({ hop: hop.publicKey, to, lamports, nonceAccount: new PublicKey(n.account), authority: new PublicKey(n.authority), nonce: n.value }), hop),
+    signDelivery(
+      n2Message({ hop: hop.publicKey, to, lamports, nonceAccount: new PublicKey(n.account), authority: new PublicKey(n.authority), nonce: n.value, ...(shape ? { shape } : {}) }),
+      hop,
+    ),
   );
 }
 
@@ -96,9 +117,9 @@ export function nonceOk(acct: { owner: PublicKey | string; data: Uint8Array } | 
   return !!n && n.authority.toBase58() === authority && n.nonce === lease.value;
 }
 
-/** A delivery made here (the owner finishing one, or sending returned SOL on): L1 for everything the hop holds, less its fee. */
-export function finishTransaction(hop: Keypair, to: PublicKey, lamports: bigint, blockhash: string): Uint8Array {
-  const m = l1Message({ hop: hop.publicKey, to, lamports, blockhash });
+/** A delivery made here (the owner finishing one, or sending returned SOL on): L1 for everything the hop holds, less its fee, in `shape` (none: the fixed one). */
+export function finishTransaction(hop: Keypair, to: PublicKey, lamports: bigint, blockhash: string, shape?: DeliveryShape): Uint8Array {
+  const m = l1Message({ hop: hop.publicKey, to, lamports, blockhash, ...(shape ? { shape } : {}) });
   return deliveryTransaction(m, [signDelivery(m, hop)]);
 }
 
@@ -107,6 +128,8 @@ export type HopLookup = {
   status: string;
   to?: string;
   amount?: string;
+  /** the shape the delivery was signed in (none: the fixed one) */
+  shape?: ShapeJson;
   l1?: { blockhash: string; sig: string };
   n2?: { account: string; authority: string; value: string; sig: string };
 };
@@ -121,9 +144,12 @@ export function trustedRecipient(hop: PublicKey, r: HopLookup): string | null {
   try {
     const to = new PublicKey(r.to);
     const lamports = BigInt(r.amount);
-    if (r.l1 && verifyDelivery(l1Message({ hop, to, lamports, blockhash: r.l1.blockhash }), bs58.decode(r.l1.sig), hop)) return to.toBase58();
+    // the shape it was signed in: the hop's signature covers it too, so a wrong one simply doesn't check out
+    const shape = r.shape == null ? undefined : readShape(r.shape);
+    const sh = shape ? { shape } : {};
+    if (r.l1 && verifyDelivery(l1Message({ hop, to, lamports, blockhash: r.l1.blockhash, ...sh }), bs58.decode(r.l1.sig), hop)) return to.toBase58();
     if (r.n2) {
-      const m = n2Message({ hop, to, lamports, nonceAccount: new PublicKey(r.n2.account), authority: new PublicKey(r.n2.authority), nonce: r.n2.value });
+      const m = n2Message({ hop, to, lamports, nonceAccount: new PublicKey(r.n2.account), authority: new PublicKey(r.n2.authority), nonce: r.n2.value, ...sh });
       if (verifyDelivery(m, bs58.decode(r.n2.sig), hop)) return to.toBase58();
     }
   } catch {
@@ -137,11 +163,38 @@ export function lookupBody(hop: Keypair, ts: number) {
   return { hop: hop.publicKey.toBase58(), ts, sig: b58(signDelivery(hopLookupMessage(hop.publicKey, ts), hop)) };
 }
 
+/** Whether `bytes` read as a Solana transaction message (legacy or versioned): signing them would sign a transaction. */
+export function isTxMessage(bytes: Uint8Array): boolean {
+  try {
+    const again = VersionedMessage.deserialize(bytes).serialize();
+    return again.length === bytes.length && again.every((b, i) => b === bytes[i]);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Why a text pasted for a sending address to sign is refused, or null when it may be signed. Exchanges
+ * check a plain text signed as it is, so nothing is added to it; but a text that is really something
+ * else this address signs is never signed: one of the app's own messages (they start "vs:"), a Solana
+ * off-chain message, or the bytes of a transaction.
+ */
+export function signTextProblem(text: string): string | null {
+  const bytes = new TextEncoder().encode(text);
+  if (/^vs:/i.test(text.trimStart())) return "That text looks like one of VisionSwap's own messages, so it isn't signed.";
+  if (text.startsWith("\u00ffsolana offchain") || bytes[0] === 0xff) return "That text is a Solana off-chain message, which this page doesn't sign.";
+  if (isTxMessage(bytes)) return "That text reads as a Solana transaction, so it isn't signed.";
+  return null;
+}
+
 /**
  * A message signed by a sending address, for an exchange that asks the sender of a deposit to show
- * it controls that address. The text is signed as it is (UTF-8), the way wallets sign messages.
+ * it controls that address. The text is signed as it is (UTF-8), the way wallets sign messages, and
+ * only when signTextProblem finds nothing wrong with it.
  */
 export function signText(hop: Keypair, text: string): string {
+  const why = signTextProblem(text);
+  if (why) throw new Error(why);
   return b58(signDelivery(new TextEncoder().encode(text), hop));
 }
 
@@ -219,6 +272,10 @@ export type HopLeg = {
   done?: number;
   /** when the app last saw its sending address holding a payment (refreshed about daily): kept while it does */
   held?: number;
+  /** the shape its transfer was signed in (see DeliveryShape; none: the fixed one) */
+  shape?: ShapeJson;
+  /** handed to the relayer and refused, or never seen landing: it may still land while its root is in the pool's list (VS-31), so it is still looked at */
+  dropped?: boolean;
 };
 
 const KEEP_OPEN_MS = 30 * 24 * 3_600_000;
@@ -358,7 +415,7 @@ export const AUTO_FINISH_SLACK = 1_000_000n;
  * Whether the open app may finish a delivery by itself: the address holds what an undelivered payment
  * does (give or take a little dust). Anything else, such as an exchange's refund, is the owner's to decide.
  */
-export const autoFinishable = (lamports: bigint, amount: bigint) => lamports >= amount + DELIVERY_FEE && lamports <= amount + DELIVERY_FEE + AUTO_FINISH_SLACK;
+export const autoFinishable = (lamports: bigint, amount: bigint, fee: bigint = DELIVERY_FEE) => lamports >= amount + fee && lamports <= amount + fee + AUTO_FINISH_SLACK;
 
 /** The network couldn't say whether a payment landed: it may still. Nothing may be sent again until that's known. */
 export class MaybeSent extends Error {}
@@ -394,11 +451,12 @@ export function finishGate(
   finishing: false | "manual" | "auto",
   lamports: bigint,
   amount?: bigint,
+  fee: bigint = DELIVERY_FEE,
 ): { delivered: string } | { refuse: string } | { send: true } {
   if (!finishing) return { send: true };
   if (by) return { delivered: by };
   if (by === undefined) return { refuse: HISTORY_UNREAD };
-  if (finishing === "auto" && amount !== undefined && !autoFinishable(lamports, amount)) return { refuse: NEEDS_LOOK };
+  if (finishing === "auto" && amount !== undefined && !autoFinishable(lamports, amount, fee)) return { refuse: NEEDS_LOOK };
   return { send: true };
 }
 

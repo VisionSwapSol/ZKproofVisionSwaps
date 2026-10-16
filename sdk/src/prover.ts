@@ -3,7 +3,7 @@ import { BASE_FIELD, concat, toBE } from "./field.ts";
 import { H1, H2, H3 } from "./poseidon.ts";
 import type { Keys } from "./keys.ts";
 import { encodeMeta, noteBlinding, randomField, type OwnedNote } from "./notes.ts";
-import { MerkleTree, zeros, TREE_DEPTH } from "./tree.ts";
+import { MerkleTree, treeAt, zeros, TREE_DEPTH } from "./tree.ts";
 import { extDataHash, publicAmountFor, type ExtData } from "./extdata.ts";
 
 export type Artifact = string | Uint8Array;
@@ -46,8 +46,20 @@ export function toSolanaProof(p: Groth16Proof): Uint8Array {
 }
 
 /**
+ * The public signals a spend's proof must carry, in the circuit's order: root, publicAmount,
+ * extDataHash, the two nullifiers, the two commitments (all decimal strings).
+ */
+export function expectedPublicSignals(p: { root: bigint; ext: ExtData; nullifiers: [bigint, bigint]; commitments: [bigint, bigint] }): string[] {
+  return [p.root, publicAmountFor(p.ext.withdraw), extDataHash(p.ext), ...p.nullifiers, ...p.commitments].map((x) => x.toString());
+}
+
+/**
  * Builds and proves a 2-in/2-out spend. Missing inputs are padded with
  * zero-value notes that need no Merkle proof.
+ *
+ * The proof names the tree's newest root, unless `rootSize` names an older tree size (a proof held
+ * for later, see rootpolicy.ts): then every input must already be in that older tree. It never
+ * falls back to another root.
  */
 export async function proveSpend(args: {
   keys: Keys;
@@ -57,9 +69,16 @@ export async function proveSpend(args: {
   ext: Omit<ExtData, "meta0" | "meta1">;
   wasm: Artifact;
   zkey: Artifact;
+  /** prove against the root the tree had at this many leaves (default: the newest) */
+  rootSize?: number;
 }): Promise<SpendProof> {
-  const { keys, tree, inputs, outputs } = args;
+  const { keys, inputs, outputs } = args;
   if (inputs.length < 1 || inputs.length > 2) throw new Error("need one or two input notes");
+  if (args.rootSize !== undefined) {
+    if (!Number.isInteger(args.rootSize) || args.rootSize < 1 || args.rootSize > args.tree.size) throw new Error("no such tree size");
+    if (inputs.some((n) => n.index >= args.rootSize!)) throw new Error("an input note is newer than the root it would be proved against");
+  }
+  const tree = args.rootSize !== undefined ? treeAt(args.tree, args.rootSize) : args.tree;
   const sumIn = inputs.reduce((s, n) => s + n.amount, 0n);
   const sumOut = outputs[0].amount + outputs[1].amount;
   if (sumIn - args.ext.withdraw !== sumOut) throw new Error("amounts do not balance");
@@ -126,6 +145,11 @@ export async function proveSpend(args: {
     proof: Groth16Proof;
     publicSignals: string[];
   };
+  // the proving files must have proved exactly this spend: anything else (a wrong or swapped circuit) stops here
+  const want = expectedPublicSignals({ root, ext, nullifiers, commitments });
+  if (!Array.isArray(publicSignals) || publicSignals.length !== want.length || publicSignals.some((s, i) => String(s) !== want[i])) {
+    throw new Error("The proof's public inputs didn't come out as expected, so it wasn't used.");
+  }
   return { proof: toSolanaProof(proof), root, nullifiers, commitments, ext, publicSignals, raw: proof };
 }
 

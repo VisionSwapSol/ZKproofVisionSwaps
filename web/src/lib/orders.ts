@@ -5,6 +5,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { normAmount } from "./amount";
 import type { Order } from "./engine";
+import { secureRandom } from "./poll";
 
 /**
  * Order keys come from the account, a few per Vision wallet: key #n belongs to wallet
@@ -17,7 +18,7 @@ export function keySlots(vision: number): number[] {
 }
 
 /** A key for a new order in this wallet, never one a known order there uses (so cancelling one can't touch another). */
-export function pickKeyN(vision: number, taken: Iterable<number>, rand: () => number = Math.random): number {
+export function pickKeyN(vision: number, taken: Iterable<number>, rand: () => number = secureRandom): number {
   const used = new Set(taken);
   const slots = keySlots(vision);
   const free = slots.filter((n) => !used.has(n));

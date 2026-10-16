@@ -1,14 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { WalletReadyState } from "@solana/wallet-adapter-base";
+import { WalletReadyState, type WalletName } from "@solana/wallet-adapter-base";
 import { Header } from "../components/Header";
 import { EyesTile } from "../components/EyesTile";
-import { Wallets, useEngine, useWalletLike, isMobile, isIOS, phantomBrowse, solflareBrowse } from "../lib/wallet";
+import { Wallets, useEngine, useWalletLike, isMobile, isIOS, phantomBrowse, solflareBrowse, MWA_NAME } from "../lib/wallet";
 import { engine, fmt, lockWaits, type State } from "../lib/engine";
 import { short, conn, confirmSig } from "../lib/net";
 import { readHandOff } from "../lib/prefill";
 import { onBuyFrom, onSellFrom } from "../lib/buyfrom";
 import { PublicKey } from "@solana/web3.js";
+import { usePortfolio } from "../lib/portfolio-hook";
+import { balanceLineRows, centsText, flightText, totalWithWallets } from "../lib/portfolio";
 
 async function faucet(owner: string) {
   try {
@@ -32,6 +34,14 @@ import { Icon } from "../components/Icon";
 import { WalletChip } from "../components/app/WalletChip";
 import { TabActive } from "../components/app/TabActive";
 import { ShieldFirst } from "../components/app/ShieldFirst";
+import { ExtensionLink } from "../components/app/ExtensionLink";
+import { useCloseRequest } from "../lib/closereq";
+import { useNoTouchToSearch } from "../lib/tapsearch";
+import { handoffDefer } from "../lib/handoff";
+import { TermsGate, TermsWall, useTermsStatus } from "../components/TermsGate";
+import { TERMS_VERSION } from "../lib/terms";
+import { Restricted, useRegion } from "../components/Restricted";
+import { ListedWallet, useListed } from "../components/app/Listed";
 
 type Tab = "shield" | "send" | "buy" | "sell" | "wallets";
 const TABS: [Tab, string][] = [
@@ -49,6 +59,8 @@ const toCard = () => {
 };
 
 export default function AppPage() {
+  // taps on the app's text never open Chrome's Touch to Search (lib/tapsearch.ts)
+  useNoTouchToSearch();
   return (
     <Wallets>
       <AppInner />
@@ -65,9 +77,12 @@ function AppInner() {
   const [tab, setTab] = useState<Tab>(() => TABS.find(([k]) => k === hand)?.[0] ?? "shield");
   // the owner's delivery check (/app#delivery-check), linked from nowhere
   const [check, setCheck] = useState(hand === "delivery-check");
+  // "Use my VisionSwap account" in the Chrome extension opens /app#extension: once the account is open, it's offered to the extension
+  const [linkExt, setLinkExt] = useState(hand === "extension");
   useEffect(() => {
     const on = () => {
       if (location.hash === "#delivery-check") setCheck(true);
+      if (location.hash === "#extension") setLinkExt(true);
       // a link to a tab ("Add SOL in the Shield tab") opens it
       const t = TABS.find(([k]) => `#${k}` === location.hash)?.[0];
       if (!t) return;
@@ -85,7 +100,6 @@ function AppInner() {
   const seen = visits.fp === fp ? visits.tabs : [tab];
 
   useEffect(() => {
-    document.title = "VisionSwap · App";
     void engine.loadPool();
     // a key kept in plain text by an older version gets sealed to this browser straight away
     void engine.protectSavedKey();
@@ -178,6 +192,17 @@ function AppInner() {
   const said = phone && st.lastSaid ? (st.said[st.lastSaid] ?? null) : null;
   const dockOn = !spotSeen && !!(dockBusy || st.error || st.notice || said);
 
+  // the Terms window comes before every way into an account (wallet, QR, private key, passkey, saved sign-in, the extension hand-off):
+  // shown on arrival, and after "Cancel" the ways in wait behind one "Review the Terms" button, never a loop of pop-ups
+  const termsStatus = useTermsStatus();
+  const [termsOpen, setTermsOpen] = useState(true);
+  // not offered where this connection comes from (the server says so, or refused a request with 451): that screen comes first
+  const regionInfo = useRegion();
+  const restricted = regionInfo.restricted;
+  const needTerms = termsStatus !== "current" && !st.unlocked && !restricted;
+  // the ways in take the focus the window had (lib/termsfocus.ts finds the heading of the way in now showing)
+  const termsDone = () => setTermsOpen(false);
+
   const net = st.pool?.network;
   return (
     <div className={`page app-page${dockOn ? " dock-on" : ""}`}>
@@ -193,6 +218,9 @@ function AppInner() {
             )}
           </p>
         )}
+        {restricted ? (
+          <Restricted info={regionInfo} heading="h1" />
+        ) : (
         <div className="app-grid">
           <section className="main-card">
             <BalanceHead
@@ -248,6 +276,13 @@ function AppInner() {
                 </button>
               </div>
             )}
+            {linkExt && (st.unlocked ? (
+              <ExtensionLink st={st} card onClose={() => setLinkExt(false)} />
+            ) : (
+              <div className="banner info" role="status">
+                <span>Open your private account here, then you can link it to the VisionSwap extension with one click.</span>
+              </div>
+            ))}
             {st.poolError && !st.pool ? (
               <div className="gate">
                 <p>The pool can't be reached right now.</p>
@@ -257,7 +292,9 @@ function AppInner() {
                 </button>
               </div>
             ) : !st.unlocked ? (
-              publicKey ? (
+              needTerms ? (
+                <TermsWall updated={termsStatus === "updated"} onReview={() => setTermsOpen(true)} />
+              ) : publicKey ? (
                 <UnlockGate st={st} />
               ) : (
                 <ConnectGate st={st} />
@@ -344,6 +381,7 @@ function AppInner() {
                 <DepositAddresses st={st} />
                 <ActivityList st={st} />
                 <Records st={st} />
+                {!linkExt && <ExtensionLink st={st} />}
                 <KeyPanel st={st} />
                 <PrivacyNotes />
               </>
@@ -352,8 +390,10 @@ function AppInner() {
             )}
           </aside>
         </div>
+        )}
       </main>
-      {dockOn && <Dock st={st} busy={dockBusy} said={said} />}
+      {dockOn && !restricted && <Dock st={st} busy={dockBusy} said={said} />}
+      {needTerms && termsOpen && <TermsGate onAccept={termsDone} onCancel={() => setTermsOpen(false)} />}
     </div>
   );
 }
@@ -391,8 +431,24 @@ function useInView(el: HTMLElement | null): boolean {
  */
 function Dock({ st, busy, said }: { st: State; busy: State["busy"]; said: State["said"][string] | null }) {
   const tone = busy ? "" : st.error ? " bad" : st.notice ? " good" : said ? (said.ok ? " good" : " bad") : "";
+  // its height as it shows (one line to three, and a link): the selection bar sits just above it, and a control the
+  // keyboard reaches is brought into view above both (--dock-h, see app.css)
+  const box = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const root = document.documentElement;
+    const set = () => root.style.setProperty("--dock-h", `${Math.ceil(el.getBoundingClientRect().height)}px`);
+    set();
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(set);
+    ro?.observe(el);
+    return () => {
+      ro?.disconnect();
+      root.style.removeProperty("--dock-h");
+    };
+  }, []);
   return (
-    <div className={`dock${tone}`}>
+    <div ref={box} className={`dock${tone}`}>
       {busy ? (
         <p className="dock-row">
           <span className="spinner small" aria-hidden="true" />
@@ -435,9 +491,38 @@ function Dock({ st, busy, said }: { st: State; busy: State["busy"]; said: State[
   );
 }
 
+const clockOf = (t: number) => {
+  const d = new Date(t);
+  const today = new Date().toDateString() === d.toDateString();
+  return d.toLocaleString("en-US", today ? { hour: "numeric", minute: "2-digit" } : { weekday: "short", hour: "numeric", minute: "2-digit" });
+};
+
+/**
+ * The line under the private balance: what's on its way in or out, and the total with the Vision
+ * wallets (the same figure as everywhere else; tokens with no price yet are said beside it). Token
+ * prices come only from what the Wallets, Buy or Sell tab already asked for: opening the page never
+ * sends the list of tokens held.
+ */
+function balanceLine(st: State, p: ReturnType<typeof usePortfolio>): string {
+  if (p.loading) return "Reading the pool…";
+  const parts: string[] = [];
+  if (p.flights.length) parts.push(`${flightText(p.flights[0], clockOf)}${p.flights.length > 1 ? ` · ${p.flights.length - 1} more` : ""}`);
+  if (st.vision.some((v) => v.lamports > 0n || v.tokens.some((t) => t.amount > 0n))) parts.push(totalWithWallets(p, fmt(p.sol)));
+  return parts.length ? parts.join(" · ") : "Only you can see this balance.";
+}
+
 function BalanceHead({ st, onDisconnect, onLock }: { st: State; onDisconnect?: () => void; onLock?: () => void }) {
   // an action the person started finishes on this account first (the engine would hold the lock until then), so Lock waits for it
   const running = lockWaits(st);
+  const p = usePortfolio(st, { fetch: false });
+  const sub = `${balanceLine(st, p)}${st.unexpected > 0n ? ` · ${fmt(st.unexpected, 4)} SOL in a repeated deposit, left unused` : ""}`;
+  // the private balance in dollars, as every screen shows it (rounded once with the rest, see portfolio.ts)
+  const k = p.assets.findIndex((a) => a.key === "private");
+  const privateUsd = k < 0 || st.balance <= 0n ? null : centsText(p.cents.rows[k], p.assets[k].usd);
+  // the lines its second line keeps on a wider screen: one, or two once it can say two things (see balanceLineRows)
+  const rows = useRef<{ fp: string | null; two: boolean }>({ fp: null, two: false });
+  if (rows.current.fp !== st.fingerprint) rows.current = { fp: st.fingerprint, two: false };
+  if (st.unlocked && !p.loading && balanceLineRows(p, rows.current.two) === 2) rows.current.two = true;
   return (
     <div className="bal-head">
       <div className="bal-mascot">
@@ -446,14 +531,10 @@ function BalanceHead({ st, onDisconnect, onLock }: { st: State; onDisconnect?: (
       <div className="bal-text">
         <span className="eyebrow">Private balance</span>
         <strong className="bal-num">{st.unlocked ? `${fmt(st.balance)} SOL` : "Locked"}</strong>
-        {st.unlocked && st.solUsd != null && st.balance > 0n && (
-          <span className="bal-usd">≈ ${((Number(st.balance) / 1e9) * st.solUsd).toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>
-        )}
-        <span className="muted small bal-sub">
+        {st.unlocked && privateUsd != null && <span className="bal-usd">≈ {privateUsd}</span>}
+        <span className={`muted small bal-sub${rows.current.two ? " two" : ""}`} title={st.unlocked ? sub : undefined}>
           {st.unlocked
-            ? st.syncing
-              ? "Reading the pool…"
-              : `${st.notes.length} note${st.notes.length === 1 ? "" : "s"} · ${st.synced.toLocaleString("en-US")} in the pool${st.locked > 0n ? ` · ${fmt(st.locked, 4)} SOL scheduled` : ""}`
+            ? sub
             : st.owner
               ? `Wallet ${short(st.owner)}`
               : "No wallet connected"}
@@ -491,17 +572,19 @@ function startWay(): Way {
  * wallet, a private key made on this device opens it and a QR code takes SOL from anywhere.
  */
 function ConnectGate({ st }: { st: State }) {
-  const { wallets, select, connecting } = useWallet();
+  const { wallets, wallet, select, connect, connecting } = useWallet();
   const installed = wallets.filter((w) => w.readyState === WalletReadyState.Installed || w.readyState === WalletReadyState.Loadable);
   const mobile = isMobile();
   const [way, setWay] = useState<Way>(startWay);
   const back = () => setWay("choose");
+  // Back (in the Android app) returns to the two ways in, like "Other ways in"
+  useCloseRequest(way !== "choose", back);
   return (
     <div className="gate">
       {way === "choose" && (
         <>
           <SavedKey st={st} />
-          <h2>Open VisionSwap</h2>
+          <h2 tabIndex={-1}>Open VisionSwap</h2>
           <p className="muted">Two ways in. Both give you the same private balance, with private sends, buys and sells.</p>
           <div className="ways" role="list">
             <button type="button" role="listitem" className="way" onClick={() => setWay("wallet")}>
@@ -539,7 +622,15 @@ function ConnectGate({ st }: { st: State }) {
       )}
       {way === "wallet" && (
         <>
-          <WalletChoices installed={installed} mobile={mobile} connecting={connecting} select={select} />
+          <WalletChoices
+            installed={installed}
+            mobile={mobile}
+            connecting={connecting}
+            choose={(name) =>
+              // choosing the wallet that is already chosen (say, after a cancelled or timed-out try) connects it again
+              wallet?.adapter.name === name ? connect().catch(() => {}) : select(name)
+            }
+          />
           <button type="button" className="link-btn" onClick={back}>
             ← Other ways in
           </button>
@@ -553,9 +644,13 @@ function ConnectGate({ st }: { st: State }) {
       )}
       {way === "key" && <KeyRestore st={st} onBack={back} />}
       <p className="tiny">
-        By connecting a wallet or opening a private account, you agree to the{" "}
+        You accepted the{" "}
         <a href="/terms" target="_blank" rel="noreferrer noopener">
           Terms of use
+        </a>{" "}
+        (version {TERMS_VERSION}) on this device. How your data is handled:{" "}
+        <a href="/privacy" target="_blank" rel="noreferrer noopener">
+          Privacy policy
         </a>
         .
       </p>
@@ -584,12 +679,12 @@ function WalletChoices({
   installed,
   mobile,
   connecting,
-  select,
+  choose,
 }: {
   installed: ReturnType<typeof useWallet>["wallets"];
   mobile: boolean;
   connecting: boolean;
-  select: ReturnType<typeof useWallet>["select"];
+  choose: (name: WalletName) => void;
 }) {
   return (
     <>
@@ -599,7 +694,7 @@ function WalletChoices({
         <ul className="wallet-list">
           {installed.map((w) => (
             <li key={w.adapter.name}>
-              <button type="button" disabled={connecting} onClick={() => select(w.adapter.name)}>
+              <button type="button" disabled={connecting} onClick={() => choose(w.adapter.name)}>
                 <img src={w.adapter.icon} alt="" width={32} height={32} />
                 <span>{w.adapter.name}</span>
                 <small>{w.readyState === WalletReadyState.Installed ? "Detected" : "Available"}</small>
@@ -636,9 +731,12 @@ function WalletChoices({
 
 function UnlockGate({ st }: { st: State }) {
   const wallet = useWalletLike();
-  const { wallet: w } = useWallet();
+  const { wallet: w, disconnect } = useWallet();
   const first = st.owner ? !engine.hasUnlockedBefore(st.owner) : true;
   const canSign = !!wallet;
+  // a wallet on the U.S. sanctions list opens no account (checked here in the browser, before anything is signed)
+  const listed = useListed(st.owner);
+  if (listed) return <ListedWallet onDisconnect={() => disconnect().catch(() => {})} />;
   return (
     <div className="gate">
       {w && st.owner && (
@@ -660,13 +758,17 @@ function UnlockGate({ st }: { st: State }) {
       {st.owner && (
         <p className="small">
           Curious what this wallet already gives away?{" "}
-          <a href={`/check?a=${st.owner}`} className="link-btn">
+          <a href={`/check#a=${st.owner}`} className="link-btn">
             Check its exposure
           </a>
         </p>
       )}
       {!canSign && <p className="warn">{w?.adapter.name ?? "This wallet"} can't sign messages, so it can't open a VisionSwap account.</p>}
-      <button className="btn violet wide" disabled={!canSign || !!st.busy} onClick={() => wallet && engine.unlock(wallet)}>
+      <button
+        className="btn violet wide"
+        disabled={!canSign || !!st.busy}
+        onClick={() => wallet && engine.unlock(wallet, { tapBeforeSecond: w?.adapter.name === MWA_NAME })}
+      >
         {first ? "Sign to open" : "Sign to unlock"}
       </button>
       <details className="key-alt">
@@ -674,12 +776,12 @@ function UnlockGate({ st }: { st: State }) {
         <KeyStart st={st} />
       </details>
       <p className="tiny">
-        Only sign this message inside VisionSwap. Anyone who has the signature can spend your private balance. By continuing, you agree
-        to the{" "}
+        Only sign this message inside VisionSwap, and check that your wallet names visionswap.net. Anyone who has the signature can spend
+        your private balance. Your use is covered by the{" "}
         <a href="/terms" target="_blank" rel="noreferrer noopener">
           Terms of use
-        </a>
-        .
+        </a>{" "}
+        you accepted on this device.
       </p>
     </div>
   );
@@ -690,11 +792,30 @@ function BusyCard({ st, stepRef }: { st: State; stepRef?: (el: HTMLElement | nul
     <div className="busy" role="status">
       <div className="busy-in" ref={stepRef}>
         <div className="busy-mascot">
-          <EyesTile shield={1} compact />
+          {/* on Android the 3D mascot waits until the tap has opened the wallet app (lib/handoff.ts) */}
+          <EyesTile shield={1} compact defer={handoffDefer(globalThis.navigator?.userAgent)} />
         </div>
         <p className="busy-step">{st.busy!.step}</p>
         {st.busy!.detail && <p className="muted small">{st.busy!.detail}</p>}
-        <span className="spinner" aria-hidden="true" />
+        {st.busy!.tap ? (
+          <>
+            <button type="button" className="btn violet" onClick={() => engine.tapBusy()}>
+              {st.busy!.tap}
+            </button>
+            <button type="button" className="link-btn" onClick={() => engine.cancelTap()}>
+              Cancel
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="spinner" aria-hidden="true" />
+            {st.busy!.cancel && (
+              <button type="button" className="link-btn" onClick={() => engine.cancelTap()}>
+                Cancel
+              </button>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -710,8 +831,8 @@ function PrivacyNotes() {
         <li>Wait a while between shielding and spending. The busier the pool, the better.</li>
         <li>Spend amounts that differ from what you shielded. Round numbers blend in.</li>
         <li>Never send back to the wallet you shielded from.</li>
-        <li>Shield and spend in different sittings, ideally from a different network or through a VPN. Like any website, ours can see the connections it receives, even though it keeps no logs.</li>
-        <li>Your spending and viewing keys never leave this browser. Nothing on our side can spend or freeze your private balance.</li>
+        <li>Shield and spend in different sittings, ideally from a different network or through a VPN. Like any website, ours can see the connections it receives, even though it writes no IP or wallet addresses to its logs. A VPN is for privacy, never for getting around the places where VisionSwap isn't offered (<a href="/terms#eligibility">Terms of use, section 2</a>).</li>
+        <li>Your spending and viewing keys never leave this browser, so our servers can't spend your private balance.</li>
       </ul>
     </section>
   );

@@ -1,12 +1,17 @@
-// Phase-2 trusted setup for the transaction circuit.
+// Phase-2 trusted setup for the transaction circuit, run on one machine.
 //
-//   phase 1: PSE Perpetual Powers of Tau, 80 public contributions (ppot_0080_15.ptau)
-//   phase 2: N local contributions with fresh OS randomness that is never written
-//            to disk, then a public random beacon (a Bitcoin block hash), then a
-//            full verification against the circuit and the phase-1 file.
+//   phase 1: Perpetual Powers of Tau, file ppot_0080_15.ptau (the 0080 branch:
+//            61 public contributions plus a beacon), sha256 4a8eb5a7...
+//   phase 2: N contributions made in this one process, each from fresh OS randomness
+//            that this script never writes to disk, then a beacon from the CURRENT Bitcoin
+//            tip unless --beacon is given, then a full verification against the circuit
+//            and the phase-1 file.
 //
-// Usage: node scripts/setup.mjs [--contributions 3] [--beacon <hex>] [--name "who"]
-// Anyone can add a contribution later with scripts/contribute.mjs before launch.
+// The deployed key (circuits/artifacts/TRANSCRIPT.json, 2026-10-03) was made this way.
+// For a multi-party ceremony, with contributors on their own machines and a beacon
+// announced in advance, use coordinator.mjs, contribute.mjs and verify-ceremony.mjs.
+//
+// Usage: node scripts/setup.mjs [--contributions 3] [--beacon <hex>] [--names "a,b,c"]
 
 import * as snarkjs from "snarkjs";
 import { randomBytes, createHash } from "node:crypto";

@@ -39,3 +39,9 @@ pub fn verify(proof: &[u8; 256], public: &[[u8; 32]; N_PUBLIC]) -> Result<()> {
     require!(ok, PoolError::InvalidProof);
     Ok(())
 }
+
+// Host tests only. Not under idl-build: `anchor idl build` compiles the crate's
+// tests, and these read a fixture from server/ that a copy of program/ lacks.
+#[cfg(all(test, not(feature = "idl-build")))]
+#[path = "adversarial_tests.rs"]
+mod adversarial_tests;

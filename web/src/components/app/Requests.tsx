@@ -19,8 +19,8 @@ export function RequestLink({ st }: { st: State }) {
     <div className="form req-form">
       <ClosedNote st={st} />
       <p className="qr-lead">
-        Ask someone for SOL with a link. They pay from any wallet or exchange, and it moves into your private balance. They never see your balance or
-        your wallets.
+        Ask someone for SOL with a link. They pay from any wallet or exchange, and it moves into your private balance. They never see your private
+        balance or your other wallets.
       </p>
       <AmountField label="Amount" hint="Optional" value={amt} onChange={setAmt} placeholder="Any amount" />
       <label className="field">

@@ -42,6 +42,30 @@ export function roomFor(outAmount: bigint, minOut: bigint): number | null {
   return bps >= 10 ? bps : null;
 }
 
+// ─── price room ───
+
+/**
+ * "Auto" price room for a token: thin markets move fast, so they get more room. A transfer tax adds
+ * nothing: Jupiter's quote already counts it (its amounts are what arrives), so adding it again only
+ * widened the room (a 3%-tax token got 13% where its liquidity tier gives 10%).
+ */
+export function autoSlippage(t: { liquidity?: number | null } | null | undefined): number {
+  const liq = t?.liquidity ?? null;
+  return liq == null ? 500 : liq < 50_000 ? 1000 : liq < 250_000 ? 600 : liq < 2_000_000 ? 300 : 100;
+}
+
+// ─── leftovers ───
+
+/**
+ * A sliver a route left behind (a unit or so of a token in between, from rounding): at most a
+ * millionth of one whole token. It holds back a wallet's whole fee reserve and its account's rent
+ * (a single unit of a token in between can hold back about 0.0116 SOL), so moving the wallet back
+ * clears it. A token with fewer than 6 decimals never has one: its smallest unit is worth keeping.
+ */
+export function isDust(raw: bigint, decimals: number): boolean {
+  return raw > 0n && decimals >= 6 && raw * 1_000_000n <= 10n ** BigInt(decimals);
+}
+
 // ─── joining notes ───
 
 /** Joining more notes than this for one spend takes too long to be worth it (each join is a proof and a relay). */

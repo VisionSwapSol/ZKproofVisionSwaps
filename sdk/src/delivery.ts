@@ -16,10 +16,15 @@ import { grossUp } from "./extdata.ts";
  *
  * The hop signs TX2 in the owner's browser before TX1 is sent, so nobody can change where it goes.
  * TX2 comes in two shapes:
- *  - L1, on a recent blockhash: the shape every wallet and exchange withdrawal has;
+ *  - L1, on a recent blockhash: an ordinary SOL transfer that wallets and exchanges credit like any
+ *    deposit (in the fixed shape its compute budget, price and fee still make it recognisable, see
+ *    VS-34; a shape the sender draws with randomShape varies them);
  *  - N2, on a durable nonce, for payments sent while the page is closed: the relayer's nonce
- *    authority (which holds no SOL, and signs read-only) adds its signature when it sends it.
- * Both cost the hop exactly DELIVERY_FEE, so either pays the recipient the same amount.
+ *    authority (which holds no SOL, and signs read-only) adds its signature when it sends it, so
+ *    anyone can list N2 deliveries by that published authority.
+ * Either way the recipient is public and one hop from the pool; what the proof hides is the sender.
+ * Both cost the hop exactly the same fee (DELIVERY_FEE, or the fee of the shape the sender picked:
+ * see DeliveryShape), so either pays the recipient the same amount.
  *
  * Messages are written byte by byte here, in a fixed order, so the browser and the relayer always
  * build the same bytes from the same fields: the relayer never signs or sends anything a visitor built.
@@ -39,10 +44,62 @@ export const DELIVERY_MIN_CLIENT = "1.6.0";
 /** a durable nonce account's size */
 export const NONCE_SPACE = 80;
 
-/** The network fee of a delivery with `signatures` signatures at `price` micro-lamports per unit. */
-export function deliveryFeeOf(signatures: number, price: number): bigint {
-  return BigInt(signatures) * LAMPORTS_PER_SIGNATURE + (BigInt(DELIVERY_CU) * BigInt(price) + 999_999n) / 1_000_000n;
+/** The network fee of a delivery with `signatures` signatures at `price` micro-lamports per unit, for `cu` units. */
+export function deliveryFeeOf(signatures: number, price: number, cu: number = DELIVERY_CU): bigint {
+  return BigInt(signatures) * LAMPORTS_PER_SIGNATURE + (BigInt(cu) * BigInt(price) + 999_999n) / 1_000_000n;
 }
+
+/**
+ * How a delivery's transaction is built, when the sender picks it (otherwise the fixed one above):
+ * what the hop pays the network in all (`fee`, the same for both L1 and N2, so either pays the
+ * recipient the same), each one's compute limit, and whether it is a v0 message. The compute price
+ * follows from the fee and the limit (priceFor). Every delivery from the fixed shape looks alike;
+ * a sender that draws its own (randomShape) makes its deliveries look like any other wallet's.
+ */
+export type DeliveryShape = { fee: bigint; cuL1: number; cuN2: number; v0: boolean };
+/** the shape of a delivery that names none: exactly the fixed constants above */
+export const FIXED_SHAPE: DeliveryShape = { fee: DELIVERY_FEE, cuL1: DELIVERY_CU, cuN2: DELIVERY_CU, v0: false };
+/**
+ * The shapes the relayer takes: a fee between these (an N2 pays two signatures and at least a little
+ * priority on top), and compute limits between these (a delivery uses well under a thousand units).
+ */
+export const SHAPE_BAND = { feeMin: 11_000n, feeMax: 30_000n, cuMin: 1_200, cuMax: 8_000 } as const;
+
+/** The compute price (micro-lamports per unit) that makes `cu` units cost exactly `priority` lamports. */
+export function priceFor(cu: number, priority: bigint): number {
+  if (!Number.isInteger(cu) || cu <= 0 || cu > 1_400_000 || priority <= 0n) throw new Error("bad compute budget");
+  return Number((priority * 1_000_000n) / BigInt(cu));
+}
+
+/** Whether a shape is one the relayer takes. */
+export function shapeOk(s: DeliveryShape): boolean {
+  const cuOk = (cu: number) => Number.isInteger(cu) && cu >= SHAPE_BAND.cuMin && cu <= SHAPE_BAND.cuMax;
+  return typeof s.fee === "bigint" && s.fee >= SHAPE_BAND.feeMin && s.fee <= SHAPE_BAND.feeMax && cuOk(s.cuL1) && cuOk(s.cuN2) && typeof s.v0 === "boolean";
+}
+
+/** The fixed shape, or one drawn at random within the band (`rand` gives a number in [0, 1)). */
+export function randomShape(rand: () => number): DeliveryShape {
+  const pick = (lo: number, hi: number) => lo + Math.floor(rand() * (hi - lo + 1));
+  // fees cluster at round numbers in practice, so most draws land on one
+  const fees = [11_000, 12_000, 12_500, 15_000, 16_000, 20_000, 25_000];
+  const fee = BigInt(rand() < 0.7 ? fees[Math.floor(rand() * fees.length)] : pick(Number(SHAPE_BAND.feeMin), Number(SHAPE_BAND.feeMax)));
+  const cu = () => (rand() < 0.5 ? [1_400, 2_000, 3_000, 5_000][Math.floor(rand() * 4)] : pick(SHAPE_BAND.cuMin, SHAPE_BAND.cuMax));
+  return { fee, cuL1: cu(), cuN2: cu(), v0: rand() < 0.5 };
+}
+
+/** The shape a delivery body carries on the wire ({ fee: "12000", cuL1, cuN2, v0 }), checked; undefined when it has none. */
+export function readShape(raw: unknown): DeliveryShape | undefined {
+  if (raw == null) return undefined;
+  const o = raw as Record<string, unknown>;
+  if (typeof o !== "object" || typeof o.fee !== "string" || !/^\d{1,8}$/.test(o.fee) || typeof o.cuL1 !== "number" || typeof o.cuN2 !== "number" || typeof o.v0 !== "boolean") {
+    throw new Error("bad delivery shape");
+  }
+  const s: DeliveryShape = { fee: BigInt(o.fee), cuL1: o.cuL1, cuN2: o.cuN2, v0: o.v0 };
+  if (!shapeOk(s)) throw new Error("bad delivery shape");
+  return s;
+}
+/** The shape as it goes on the wire (see readShape). */
+export const shapeJson = (s: DeliveryShape) => ({ fee: s.fee.toString(), cuL1: s.cuL1, cuN2: s.cuN2, v0: s.v0 });
 
 /** What /api/pool/info publishes about deliveries; the app refuses to send when it differs from its own. */
 export type DeliveryInfo = {
@@ -56,6 +113,8 @@ export type DeliveryInfo = {
   nonceAuthority: string | null;
   /** whether payments can be delivered while the page is closed (send later, split payments) */
   nonce: boolean;
+  /** the shapes a sender may pick instead of the fixed one (see DeliveryShape); absent on servers that take only the fixed one */
+  shapes?: { feeMin: string; feeMax: string; cuMin: number; cuMax: number; v0: boolean };
 };
 
 /** Whether the server's delivery terms are the ones this code was built with. */
@@ -86,9 +145,9 @@ export function predictCredit(withdraw: bigint, relayerFee: bigint, feeBps: numb
  * gets exactly `amount`. The program's credit steps by 0 or 1 as `withdraw` grows, so an exact one
  * always exists; it is checked, never assumed.
  */
-export function deliveryWithdraw(amount: bigint, relayerFee: bigint, feeBps: number, treasury?: TreasuryView): bigint {
+export function deliveryWithdraw(amount: bigint, relayerFee: bigint, feeBps: number, treasury?: TreasuryView, deliveryFee: bigint = DELIVERY_FEE): bigint {
   if (amount <= 0n) throw new Error("nothing to deliver");
-  const want = amount + DELIVERY_FEE;
+  const want = amount + deliveryFee;
   // no protocol fee on it (too small, or a treasury that can't take one): the plain sum
   const plain = want + relayerFee;
   if (predictCredit(plain, relayerFee, feeBps, treasury) === want) return plain;
@@ -137,12 +196,25 @@ function legacyMessage(header: [number, number, number], keys: PublicKey[], bloc
 }
 
 const u32 = (n: number) => toLE(BigInt(n), 4);
-const cuLimit = (program: number): Ix => ({ program, accounts: [], data: concat(Uint8Array.of(2), u32(DELIVERY_CU)) });
+const cuLimit = (program: number, cu: number): Ix => ({ program, accounts: [], data: concat(Uint8Array.of(2), u32(cu)) });
 const cuPrice = (program: number, price: number): Ix => ({ program, accounts: [], data: concat(Uint8Array.of(3), toLE(BigInt(price), 8)) });
 const transfer = (program: number, from: number, to: number, lamports: bigint): Ix => ({ program, accounts: [from, to], data: concat(u32(2), toLE(lamports, 8)) });
 
-export type L1Fields = { hop: PublicKey; to: PublicKey; lamports: bigint; blockhash: string };
-export type N2Fields = { hop: PublicKey; to: PublicKey; lamports: bigint; nonceAccount: PublicKey; authority: PublicKey; nonce: string };
+/** `shape`: the one the sender picked (see DeliveryShape); without it, the fixed one */
+export type L1Fields = { hop: PublicKey; to: PublicKey; lamports: bigint; blockhash: string; shape?: DeliveryShape };
+export type N2Fields = { hop: PublicKey; to: PublicKey; lamports: bigint; nonceAccount: PublicKey; authority: PublicKey; nonce: string; shape?: DeliveryShape };
+
+/** A message in the legacy format, or (v0) the same fields as a v0 message with no lookup tables. */
+function message(v0: boolean, header: [number, number, number], keys: PublicKey[], blockhash: string, ixs: Ix[]): Uint8Array {
+  const m = legacyMessage(header, keys, blockhash, ixs);
+  return v0 ? concat(Uint8Array.of(0x80), m, shortVec(0)) : m;
+}
+
+/** A shape the sender picked, checked (the fixed one when none). */
+function shapeOf(s: DeliveryShape | undefined): DeliveryShape {
+  if (s && !shapeOk(s)) throw new Error("bad delivery shape");
+  return s ?? FIXED_SHAPE;
+}
 
 function checkLamports(lamports: bigint) {
   if (lamports <= 0n || lamports >= 1n << 64n) throw new Error("bad delivery amount");
@@ -150,13 +222,15 @@ function checkLamports(lamports: bigint) {
 
 /**
  * L1: [SetComputeUnitLimit, SetComputeUnitPrice, Transfer(hop → to)] on a recent blockhash, signed
- * and paid for by the hop. Keys: hop (signer, writable), to (writable), System, ComputeBudget.
+ * and paid for by the hop. Keys: hop (signer, writable), to (writable), System, ComputeBudget. Its fee
+ * and limit, and the format (legacy or v0), are the shape's (the fixed one unless the sender picked one).
  */
 export function l1Message(f: L1Fields): Uint8Array {
   checkLamports(f.lamports);
-  return legacyMessage([1, 0, 2], [f.hop, f.to, SYSTEM, COMPUTE_BUDGET], f.blockhash, [
-    cuLimit(3),
-    cuPrice(3, DELIVERY_PRICE_L1),
+  const s = shapeOf(f.shape);
+  return message(s.v0, [1, 0, 2], [f.hop, f.to, SYSTEM, COMPUTE_BUDGET], f.blockhash, [
+    cuLimit(3, s.cuL1),
+    cuPrice(3, f.shape ? priceFor(s.cuL1, s.fee - LAMPORTS_PER_SIGNATURE) : DELIVERY_PRICE_L1),
     transfer(2, 0, 1, f.lamports),
   ]);
 }
@@ -169,10 +243,11 @@ export function l1Message(f: L1Fields): Uint8Array {
  */
 export function n2Message(f: N2Fields): Uint8Array {
   checkLamports(f.lamports);
-  return legacyMessage([2, 1, 3], [f.hop, f.authority, f.nonceAccount, f.to, SYSTEM, SYSVAR_RECENT_BLOCKHASHES_PUBKEY, COMPUTE_BUDGET], f.nonce, [
+  const s = shapeOf(f.shape);
+  return message(s.v0, [2, 1, 3], [f.hop, f.authority, f.nonceAccount, f.to, SYSTEM, SYSVAR_RECENT_BLOCKHASHES_PUBKEY, COMPUTE_BUDGET], f.nonce, [
     { program: 4, accounts: [2, 5, 1], data: u32(4) },
-    cuLimit(6),
-    cuPrice(6, DELIVERY_PRICE_N2),
+    cuLimit(6, s.cuN2),
+    cuPrice(6, f.shape ? priceFor(s.cuN2, s.fee - 2n * LAMPORTS_PER_SIGNATURE) : DELIVERY_PRICE_N2),
     transfer(4, 0, 3, f.lamports),
   ]);
 }
@@ -180,7 +255,8 @@ export function n2Message(f: N2Fields): Uint8Array {
 /** The transaction as sent: its signatures (fee payer first) and the message. */
 export function deliveryTransaction(message: Uint8Array, signatures: Uint8Array[]): Uint8Array {
   if (signatures.some((s) => s.length !== 64)) throw new Error("bad signature");
-  if (signatures.length !== message[0]) throw new Error("wrong number of signatures");
+  // a v0 message starts with its version byte, then the same header
+  if (signatures.length !== (message[0] & 0x80 ? message[1] : message[0])) throw new Error("wrong number of signatures");
   return concat(shortVec(signatures.length), ...signatures, message);
 }
 
@@ -210,7 +286,11 @@ export function readNonceAccount(data: Uint8Array): { authority: PublicKey; nonc
 
 // ─── who may receive ───
 
-/** Programs, sysvars and other addresses that can never be a payment's recipient. */
+/**
+ * Programs, sysvars and other addresses that can never be a payment's recipient: every one of the
+ * runtime's 31 reserved account keys (RUNTIME_RESERVED_KEYS), plus the token programs, the memo
+ * programs and the incinerator.
+ */
 export const RESERVED_ADDRESSES: readonly string[] = [
   "11111111111111111111111111111111",
   "ComputeBudget111111111111111111111111111111",
@@ -246,6 +326,47 @@ export const RESERVED_ADDRESSES: readonly string[] = [
   "SysvarStakeHistory1111111111111111111111111",
   "SysvarEpochRewards1111111111111111111111111",
   "SysvarLastRestartS1ot1111111111111111111111",
+  "Feature111111111111111111111111111111111111",
+  "ZkTokenProof1111111111111111111111111111111",
+  "Sysvar1111111111111111111111111111111111111",
+];
+
+/**
+ * The runtime's reserved account keys (Agave's ReservedAccountKeys, all 31 of them): builtin programs
+ * and sysvars, which a transaction can never write to, so a delivery to one could never land.
+ */
+export const RUNTIME_RESERVED_KEYS: readonly string[] = [
+  "AddressLookupTab1e1111111111111111111111111",
+  "BPFLoader1111111111111111111111111111111111",
+  "BPFLoader2111111111111111111111111111111111",
+  "BPFLoaderUpgradeab1e11111111111111111111111",
+  "ComputeBudget111111111111111111111111111111",
+  "Config1111111111111111111111111111111111111",
+  "Ed25519SigVerify111111111111111111111111111",
+  "Feature111111111111111111111111111111111111",
+  "LoaderV411111111111111111111111111111111111",
+  "KeccakSecp256k11111111111111111111111111111",
+  "Secp256r1SigVerify1111111111111111111111111",
+  "Stake11111111111111111111111111111111111111",
+  "StakeConfig11111111111111111111111111111111",
+  "11111111111111111111111111111111",
+  "Vote111111111111111111111111111111111111111",
+  "ZkE1Gama1Proof11111111111111111111111111111",
+  "ZkTokenProof1111111111111111111111111111111",
+  "NativeLoader1111111111111111111111111111111",
+  "Sysvar1111111111111111111111111111111111111",
+  "SysvarC1ock11111111111111111111111111111111",
+  "SysvarEpochSchedu1e111111111111111111111111",
+  "SysvarFees111111111111111111111111111111111",
+  "Sysvar1nstructions1111111111111111111111111",
+  "SysvarLastRestartS1ot1111111111111111111111",
+  "SysvarRecentB1ockHashes11111111111111111111",
+  "SysvarRent111111111111111111111111111111111",
+  "SysvarRewards111111111111111111111111111111",
+  "SysvarS1otHashes111111111111111111111111111",
+  "SysvarS1otHistory11111111111111111111111111",
+  "SysvarStakeHistory1111111111111111111111111",
+  "SysvarEpochRewards1111111111111111111111111",
 ];
 
 const TOKEN_PROGRAMS = new Set(["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"]);

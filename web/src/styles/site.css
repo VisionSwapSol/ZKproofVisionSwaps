@@ -1,5 +1,5 @@
 /* ───────── header ───────── */
-/* anchors, scrollIntoView and focus land below the fixed header (72px), not under it */
+/* Keep the release's fixed-header offset for anchors and focus. */
 html {
   scroll-padding-top: 84px;
 }
@@ -139,6 +139,15 @@ html {
   color: var(--ink-3);
   max-width: 44ch;
 }
+/* Android, before the app's release moment: when the download opens, on a line of its own under the buttons */
+.android-soon {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-basis: 100%;
+  font-size: 14px;
+  color: var(--ink-3);
+}
 .hero-art {
   justify-self: end;
   width: min(100%, 560px);
@@ -193,7 +202,7 @@ html {
 .stats {
   margin: clamp(48px, 7vw, 96px) 0 0;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   border-top: 1px solid var(--line-strong);
 }
 .stats > div {
@@ -897,6 +906,25 @@ section h2 {
 .foot-links a:hover {
   color: #fff;
 }
+.foot-contact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 26px;
+  margin: 0 0 14px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
+}
+.foot-contact a {
+  color: rgba(255, 255, 255, 0.85);
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, 0.3);
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+.foot-contact a:hover {
+  color: #fff;
+  text-decoration-color: currentColor;
+}
 .foot-small {
   font-size: 13px;
   color: rgba(255, 255, 255, 0.5);
@@ -1252,4 +1280,236 @@ section h2 {
 }
 .prose .clause b {
   color: var(--ink);
+}
+
+/* ───────── mobile navigation ─────────
+   The menu is portalled to body: header blur/backdrop filters must never
+   become a fixed-position containing block for the full-viewport surface. */
+@media (max-width: 1024px) {
+  .hdr-in {
+    height: 68px;
+  }
+  .hdr .nav {
+    display: none;
+  }
+  .hdr .burger {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    z-index: 2;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--paper) 88%, transparent);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .hdr.app .hdr-right {
+    margin-left: auto;
+  }
+  .hdr .burger i {
+    left: 14px;
+    right: 14px;
+    top: 22px;
+  }
+  .hdr .burger i:first-child {
+    transform: translateY(-4px);
+  }
+  .hdr .burger i:last-child {
+    transform: translateY(4px);
+  }
+  .hdr .burger.x i:first-child {
+    transform: rotate(45deg);
+  }
+  .hdr .burger.x i:last-child {
+    transform: rotate(-45deg);
+  }
+}
+
+.mobile-menu-layer {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  isolation: isolate;
+}
+.mobile-menu-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: rgba(22, 10, 36, 0.42);
+  animation: menuFadeIn 180ms ease both;
+}
+.mobile-menu-panel {
+  position: absolute;
+  inset: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: max(12px, env(safe-area-inset-top)) max(22px, env(safe-area-inset-right))
+    max(22px, env(safe-area-inset-bottom)) max(22px, env(safe-area-inset-left));
+  background:
+    radial-gradient(ellipse at 100% 0%, rgba(136, 4, 254, 0.09), transparent 36%),
+    var(--paper);
+  animation: menuRiseIn 220ms var(--ease) both;
+}
+.mobile-menu-surface-dismiss {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+}
+.mobile-menu-top {
+  position: relative;
+  z-index: 1;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.mobile-menu-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--serif);
+  font-size: 21px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.mobile-menu-brand img {
+  border-radius: 9px;
+}
+.mobile-menu-close {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  color: var(--ink);
+  background: var(--card);
+  font-size: 32px;
+  line-height: 1;
+}
+.mobile-menu-close span {
+  transform: translateY(-2px);
+}
+.mobile-menu-links {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 600px);
+  margin: clamp(24px, 8vh, 72px) auto 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+.mobile-menu-links > a:not(.btn) {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 8px 2px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: clamp(24px, 7vw, 34px);
+  line-height: 1.12;
+  text-decoration: none;
+}
+.mobile-menu-links > a:not(.btn):hover {
+  color: var(--violet);
+}
+.mobile-menu-links > a:not(.btn) span {
+  min-width: 28px;
+  color: var(--violet);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+.mobile-menu-links > a.nav-x {
+  align-self: flex-start;
+  margin-top: 18px;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  min-height: 48px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+}
+.mobile-menu-links .nav-cta {
+  min-height: 54px;
+  align-self: stretch;
+  margin-top: 20px;
+}
+.mobile-menu-links a:focus-visible,
+.mobile-menu-close:focus-visible {
+  outline-offset: 4px;
+}
+@keyframes menuFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes menuRiseIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (min-width: 1025px) {
+  .mobile-menu-layer {
+    display: none;
+  }
+}
+@media (max-height: 600px) and (max-width: 1024px) {
+  .mobile-menu-panel {
+    padding-top: max(8px, env(safe-area-inset-top));
+  }
+  .mobile-menu-links {
+    margin-top: 12px;
+  }
+  .mobile-menu-links > a:not(.btn) {
+    min-height: 48px;
+    font-size: 22px;
+  }
+  .mobile-menu-links > a.nav-x {
+    width: 44px;
+    height: 44px;
+    margin-top: 10px;
+  }
+  .mobile-menu-links .nav-cta {
+    min-height: 46px;
+    margin-top: 10px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-menu-panel,
+  .mobile-menu-backdrop {
+    animation: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .foot-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .foot-links {
+    width: 100%;
+    gap: 8px 20px;
+  }
+  .foot-links a {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
 }

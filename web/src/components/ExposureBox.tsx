@@ -43,7 +43,9 @@ export function ExposureBox({ initial = "", big = false }: { initial?: string; b
     setBusy(true);
     setRep(null);
     try {
-      const r = await fetch(`${API}/api/exposure/${a}`);
+      // the address goes in the body, never in a URL the host logs (a server from before is asked the old way)
+      let r = await fetch(`${API}/api/exposure`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: a }) });
+      if (r.status === 404 || r.status === 405) r = await fetch(`${API}/api/exposure/${a}`);
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error || "Lookup failed");
       setRep(j);

@@ -7,6 +7,8 @@
   --ink-3: #6b6378; /* small grey text stays readable (4.5:1 or more on every light background) */
   --line: rgba(22, 10, 36, 0.12);
   --line-strong: rgba(22, 10, 36, 0.22);
+  /* borders of controls (ghost buttons, inputs, tick boxes): 3:1 or more against their background */
+  --line-control: rgba(22, 10, 36, 0.45);
   --violet: #8804fe;
   --violet-deep: #5b02ad;
   --violet-ink: #3a0275;
@@ -37,6 +39,7 @@
   --ink-3: #93889f;
   --line: rgba(243, 238, 250, 0.12);
   --line-strong: rgba(243, 238, 250, 0.24);
+  --line-control: rgba(243, 238, 250, 0.4);
   --violet-soft: #2a0f4d;
   --violet-ink: #d7b8ff;
   color-scheme: dark;

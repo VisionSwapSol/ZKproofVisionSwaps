@@ -1,0 +1,510 @@
+/* ───────── The Terms window (click-wrap): components/TermsGate.tsx ───────── */
+.tg-back {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(22, 10, 36, 0.52);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  animation: tgFade 0.2s ease both;
+}
+.tg {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 620px;
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+  border-radius: 24px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 36px 90px -30px rgba(22, 10, 36, 0.6);
+  animation: tgRise 0.26s var(--ease) both;
+}
+/* a screen reader's cursor or find-in-page scrolling to a line must never slide the whole window out of
+   place (a hidden box can still be scrolled by the browser, with no way back): the screen-reader-only text
+   belongs to its own part of the window, so nothing overflows the window itself, and where the browser
+   can, the window clips rather than hides */
+@supports (overflow: clip) {
+  .tg {
+    overflow: clip;
+  }
+}
+.tg-scroll,
+.tg-foot {
+  position: relative;
+}
+.tg-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 28px 28px 10px;
+  scroll-padding-bottom: 24px;
+}
+.tg-ico {
+  display: inline-grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--violet-soft);
+  color: var(--violet-deep);
+}
+.tg-eyebrow {
+  margin-top: 14px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.tg-head h2 {
+  margin: 8px 0 8px;
+  font-size: clamp(25px, 4vw, 30px);
+  outline: none;
+}
+/* the title takes the focus when the window opens, only so screen readers start there: it is not a control */
+.tg-head h2:focus,
+.tg-head h2:focus-visible {
+  outline: none;
+}
+.tg-intro {
+  color: var(--ink-2);
+  font-size: 16px;
+  line-height: 1.5;
+}
+.tg-label {
+  margin: 0 0 8px;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--violet-ink);
+}
+.tg-changes {
+  margin: 18px 0 0;
+  padding: 14px 18px;
+  border-radius: 14px;
+  background: var(--violet-soft);
+}
+.tg-changes ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.tg-changes li {
+  margin: 4px 0;
+  font-size: 14.5px;
+  color: var(--ink-2);
+  line-height: 1.45;
+}
+.tg-points {
+  list-style: none;
+  margin: 20px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+.tg-points li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 12px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.tg-points li > svg {
+  margin-top: 1px;
+  color: var(--violet-deep);
+}
+.tg-points strong {
+  color: var(--ink);
+}
+.tg-note {
+  margin: 14px 0 0;
+  font-size: 13.5px;
+  color: var(--ink-3);
+}
+.tg-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 0;
+}
+.tg-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--violet-deep);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  cursor: pointer;
+}
+.tg-link:hover {
+  border-color: var(--violet);
+}
+.tg-link:focus-visible,
+.tg-check input:focus-visible,
+.tg .btn:focus-visible {
+  outline: 2px solid var(--violet);
+  outline-offset: 2px;
+}
+.tg-full.prose {
+  max-width: none;
+  margin: 12px 0 0;
+  padding: 4px 18px 16px;
+  max-height: min(46vh, 420px);
+  overflow-y: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: var(--paper);
+}
+.tg-full.prose h3 {
+  margin: 20px 0 6px;
+  font-size: 18px;
+}
+.tg-full.prose p,
+.tg-full.prose li {
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+.tg-full-notice {
+  margin-top: 14px;
+  font-weight: 600;
+}
+.tg-checks {
+  display: grid;
+  gap: 10px;
+  margin: 22px 0 8px;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.tg-check {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  min-height: 44px;
+  padding: 14px 16px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 14px;
+  background: var(--paper);
+  color: var(--ink-2);
+  font-size: 15px;
+  line-height: 1.5;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+.tg-check:has(input:checked) {
+  border-color: var(--violet);
+  background: var(--violet-soft);
+}
+.tg-check input {
+  width: 22px;
+  height: 22px;
+  margin: 1px 0 0;
+  accent-color: var(--violet);
+  cursor: pointer;
+}
+.tg-check a {
+  color: var(--violet-deep);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.tg-foot {
+  flex: none;
+  padding: 14px 28px 20px;
+  border-top: 1px solid var(--line);
+  background: var(--card);
+}
+.tg-assent {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.tg-assent strong {
+  color: var(--ink);
+}
+.tg-err {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--bad);
+}
+.tg-err:not(:empty) {
+  margin-top: 8px;
+}
+.tg-btns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr);
+  gap: 10px;
+  margin-top: 12px;
+}
+.tg-btns .btn {
+  min-height: 52px;
+  padding: 0 14px;
+  white-space: normal;
+  line-height: 1.2;
+}
+.tg .btn.tg-off {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.tg .btn.tg-off:hover {
+  transform: none;
+  box-shadow: none;
+}
+@media (max-width: 600px) {
+  .tg-back {
+    padding: 0;
+    place-items: stretch;
+  }
+  .tg {
+    max-width: none;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    border: 0;
+  }
+  .tg-scroll {
+    padding: calc(20px + env(safe-area-inset-top)) 16px 8px;
+  }
+  .tg-foot {
+    padding: 12px 16px calc(14px + env(safe-area-inset-bottom));
+  }
+  .tg-head h2 {
+    font-size: 25px;
+  }
+  .tg-check {
+    padding: 12px 14px;
+    font-size: 15px;
+  }
+  .tg-btns {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+  }
+  /* the site's own 13 px button text, a little tighter so "Agree and continue" keeps one line at 360 px */
+  .tg-btns .btn {
+    font-size: 13px;
+    letter-spacing: 0.08em;
+  }
+}
+/* a short window (a phone on its side, or the page zoomed to 300-400%): the buttons stop being pinned to the
+   bottom and the whole window scrolls as one, so the points and the boxes never shrink to a sliver above them */
+@media (max-height: 420px) {
+  .tg {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .tg-scroll {
+    flex: none;
+    min-height: auto;
+    overflow: visible;
+  }
+}
+@keyframes tgFade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes tgRise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tg-back,
+  .tg {
+    animation: none;
+  }
+}
+
+/* in place of the ways in, until the Terms are accepted on this device */
+.tg-wall {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 18px 8px 8px;
+  text-align: center;
+}
+.tg-wall h2 {
+  margin: 4px 0 0;
+  font-size: 26px;
+}
+.tg-wall p {
+  max-width: 46ch;
+}
+.tg-wall .btn {
+  margin-top: 6px;
+}
+
+/* ───────── Terms, Security and Compliance pages ───────── */
+.prose.terms .lede {
+  max-width: 60ch;
+  margin-bottom: 8px;
+}
+.legal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 6px 0 0;
+  font-size: 14.5px;
+  color: var(--ink-3);
+}
+.legal-meta code {
+  font-family: var(--mono);
+  font-size: 13px;
+  word-break: break-all;
+}
+.legal-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0 0;
+}
+.prose .legal-notice {
+  margin: 22px 0 0;
+  padding: 14px 18px;
+  border-left: 3px solid var(--violet);
+  border-radius: 0 12px 12px 0;
+  background: var(--paper-2);
+  color: var(--ink);
+  font-size: 16px;
+}
+.legal-box {
+  margin: 18px 0 8px;
+  padding: 18px 22px;
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  background: var(--card);
+}
+.prose .legal-box h3 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+.prose .legal-box p,
+.prose .legal-box li {
+  font-size: 15.5px;
+}
+.legal-box .legal-tools {
+  margin-top: 12px;
+}
+.legal-receipt {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  gap: 6px 14px;
+  margin: 10px 0 0;
+  font-size: 14.5px;
+}
+.legal-receipt dt {
+  font-weight: 600;
+  color: var(--ink);
+}
+.legal-receipt dd {
+  margin: 0;
+  color: var(--ink-2);
+  word-break: break-all;
+}
+.legal-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--paper-2);
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.legal-status i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+.legal-status.on i {
+  background: var(--ok);
+}
+.legal-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 12px;
+  margin: 22px 0 8px;
+}
+.legal-card {
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card);
+}
+.legal-card svg {
+  color: var(--violet-deep);
+}
+.prose .legal-card strong {
+  display: block;
+  margin: 8px 0 4px;
+  color: var(--ink);
+  font-size: 16px;
+}
+.prose .legal-card p {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+.prose .legal-toc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 18px 0 0;
+  padding: 14px 18px;
+  list-style: none;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.prose .legal-toc li {
+  margin: 0;
+  font-size: 14.5px;
+}
+@media (max-width: 560px) {
+  .legal-receipt {
+    grid-template-columns: 1fr;
+  }
+}
+@media print {
+  .hdr,
+  .foot,
+  .legal-tools,
+  .legal-box.no-print {
+    display: none !important;
+  }
+  .prose {
+    padding-top: 0;
+  }
+}
+
+/* the ways in (or the line in their place) take the focus when the Terms window closes, for keyboard and
+   screen-reader users: a heading isn't a control, so it shows no ring */
+.gate h2[tabindex="-1"]:focus,
+.tg-wall h2:focus,
+.legal-result:focus,
+[data-focus-landing]:focus {
+  outline: none;
+}

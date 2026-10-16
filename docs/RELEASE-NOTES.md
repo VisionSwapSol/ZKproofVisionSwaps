@@ -1,49 +1,91 @@
 # VisionSwap release notes
 
-## What's new in 1.8.0
+## 1.10.1
 
-In plain words:
+Trade protection on every buy and sale, more privacy in the app, a build manifest anyone can check the live site against, and VisionSwap's contacts on every page. Nothing changes on-chain: the program and everyone's notes stay exactly as they are.
+
+- **Trade protection on every buy and sale.** Every quote and every transaction is checked against the market price before anything is signed, by the server and again in the app: the value against the market after known transfer taxes (a warning above 2.5%, a confirmation above 5%, a buy refused above 15%), each connecting step of a route against that pair's own market (more than 5% off is never traded), and the trade's price impact, measured against a small quote of the same pair. Routes start at 64 accounts to reach the deepest liquidity, and a smaller route more than 2% worse is refused. A sale far under the market price asks for confirmation instead of refusing, since a falling token's price can run ahead of the price book.
+- **Batches hold to the price you approved.** Each wallet's turn in a batch is held to the approved price: a turn more than the batch price guard away (5% by default, up to 15%) pauses the batch and asks, and the chain enforces that floor as the minimum received. Orders (DCA, stop-loss, take-profit, limit buys) get the same connecting-step check. Reviews show the expected and minimum received, transfer taxes and launch curves, and batches into thin, new or fast-moving tokens say so first.
+- **More privacy in the app.** Scheduled payments and orders are followed on sealed status boards, each entry padded to one size and mixed with decoys. The app finds its own deposit addresses, Vision wallets and fee wallets in the browser from the pool's public address list, and delivery records come sealed to each one-time sending address. Deliveries, deposits and swaps are signed with network settings drawn within a band, a new Vision wallet's funding carries a small random extra, and notes are chosen independently of recent activity.
+- **Proving files pinned.** The proving files are pinned by SHA-256 and checked before every proof. A payment whose proof the pool moved past is proved again automatically, and one handed back unsent goes again with the same notes.
+- **A build manifest for every release.** The site publishes it at `/.well-known/visionswap-release.json`: the SHA-256 of every file the website serves, of the Android app, of the Chrome extension and of the deployed program. `node scripts/check-release.mjs` compares a live site with it and checks the program on-chain. The 1.10.1 manifest (`release/visionswap-release.json`) has SHA-256 `adff877c5424256481649e2345c1bc36fb9476e0fe739d124fd5008af0742c0b`.
+- **One official address.** The service always uses VisionSwap's own mainnet program, every page answers from visionswap.net, and new health checks watch order keys and the pool's root history.
+- **Contacts on every page.** support@visionswap.net (support, security reports, privacy and legal requests) and business@visionswap.net (business, partnerships and press) appear in every page's footer, on the Support, Security, Compliance and Privacy pages, in the FAQ and the Docs, and in `/.well-known/security.txt`.
+- **Terms of use 2.1.** Legal notices, law-enforcement requests, reports of stolen funds and screening reviews go to support@visionswap.net. Nobody needs to accept again.
+- **Smoother on phones.** Android wallet apps show "VisionSwap" and its icon when connecting or signing, the wallet app opens straight from the tap, the signing overlay is steady, `/pay` sits below the header, and a tap on plain text no longer opens a search panel.
+- **VisionSwap for Android, ready to download.** The homepage's "Get the app" section offers the app from its release moment, October 15, 2026 at 12:00 PM PST.
+- **Clearer wallet screens.** The Wallets tab on the site and in the extension has compact rows that each open their own sheet, and a selection bar whose actions all fit; the extension's Home shows the account's whole value, SOL and tokens together.
+- **VisionSwap for Chrome 1.2.0**, with the clearer screens, Terms 2.1 and the new contacts. Same permissions as before.
+
+## 1.10.0
+
+Compliance controls built into the service, the website, the Android app and the Chrome extension. Nothing changes on-chain.
+
+- **Regions.** VisionSwap is offered everywhere except the places its Terms of use list (section 2). Requests that move money from those places are refused, and the app shows a short notice there; the rest of the site stays open. The service looks each connection up in its own copy of an IP location database: nothing about a visitor is sent anywhere or kept, only monthly counts.
+- **Screening against the official sanctions list.** The list comes from OFAC's published SDN file (its Solana addresses), checked for updates regularly, with a public copy as the cross-check and fallback. `/api/legal` publishes the screening mode, its source and its date.
+- **The network gateway checks what it relays.** A SOL transfer or pool payment sent through `/api/rpc` to a listed address is refused.
+- **Checks in the browser.** The app downloads the list from `/api/sanctions/list` (the same download for everyone) and checks the connected wallet before an account opens, and each recipient before a payment goes, without telling the server which address it is looking at.
+- **A published policy and monthly figures.** `/compliance` sets out the screening policy, the regions and monthly figures from `/api/transparency`: counts only (deposits screened, deposits returned, recipients refused, region refusals), never an address.
+- **Records you control.** "Your records" downloads a statement of the account's notes, and "Prove I control this address" signs an exchange's message with a Vision wallet, a deposit address or the connected wallet; `/verify` checks such a proof in the browser.
+- **Terms of use 2.0, accepted on every way in.** A Terms window on the website, in the extension and in the Android app; requests from the app carry the accepted Terms version (the major number only, nothing kept per person). New `/security` and `/compliance` pages.
+- **Public pages ready from the first byte.** Every public page is prerendered with its own title, description and structured data, with a new FAQ page, a sitemap and `llms.txt`.
+- **VisionSwap for Chrome 1.1.0**, with the Terms window, the region screen, the statement wording and the address proofs.
+
+## 1.9.0
+
+Privacy and security improvements across the app and the service. Nothing changes on-chain.
+
+- **Payments from your wallet in standard sizes.** "Pay from: Your wallet" deposits a standard amount (1, 2, 3 or 5 times a power of ten, such as 0.5, 1, 2 or 3 SOL: the smallest that covers the payment and its fees) and keeps the rest in the private balance as change. The form shows the deposit size, the change and the total before the wallet signs.
+- **Now or Later.** A payment sent later goes at its own random moment within the window, drawn when it is scheduled, and the form explains the benefit of Later.
+- **Joins spaced out.** When later payments need notes cut or joined first, those pool transactions run a random 15 to 60 seconds apart, and the payments go at their own moments afterwards.
+- **Proof roots picked independently of the notes.** A payment sent now names the pool's newest state; a scheduled one names a state picked at random. A payment covered by one note takes a second small note along, so balances stay in fewer pieces.
+- **Swaps checked before signing.** The app reads every swap's route before a Vision wallet signs it (the amount, the tokens, the wallet's own accounts, the fee and the guaranteed minimum), and official builds pin the pool program and fee ceilings.
+- **Notes tied to their amount.** New notes carry a tag bound to their amount, and the app counts each note once.
+- **Leaner requests.** Address lookups go in request bodies, the first pool sync of each visit starts from a shared point, and batch amounts and gaps come from the browser's secure random source.
+- **A steadier service.** Deposit screening checks where a deposit's funds came from and screens each deposit again just before it joins; the proof checker shares its time fairly and payments sent now never wait on it; a sending address that receives a little extra still delivers the exact amount; per-visitor limits stay fair for everyone; rent is read live.
+- **Reproducible program builds.** The program's toolchain is pinned (`program/toolchain.env`), its crates are locked (`program/Cargo.lock`), every mainnet build is recorded in `program/RELEASES.json`, and `program/scripts/verify-build.sh` rebuilds the deployed program byte for byte. Adversarial tests cover the on-chain verifier and the circuit, and `circuits/scripts/` gained phase-2 ceremony tooling.
+- **VisionSwap for Chrome 1.0.1** reads the new note tag, so a balance shows the same on the website and in the extension.
+
+## 1.8.2
+
+- **Reliable sends under load.** Transactions the server signs are test-run on the answering node's own fresh blockhash, a "blockhash not found" answer is asked again before it counts, and the browser follows a transaction until it lands or its blockhash expires. Sends, buys and Vision wallet funding go through smoothly, several wallets at once included.
+- **VisionSwap for Android.** A small Android app (version 1.0.0, package `net.visionswap.app`, about 1.8 MB, no permissions) that opens visionswap.net full screen from the home screen. The homepage's new "Get the app" section offers it with install steps and the app's signing fingerprint, and `/.well-known/assetlinks.json` ties the app to the site, so visionswap.net links open in it.
+- **Phone wallets connect in Android Chrome.** The site lets Chrome ask to connect to wallet apps on the device, a new account's second signature starts from a tap ("Sign again"), choosing the wallet again after a cancelled try connects it again, and the signing wait has a Cancel button and a clear way back.
+- **A Support page** (`/support`), a redesigned phone menu (Back and Esc close it first), a release countdown under the hero, and section links that wait for the page to load.
+
+## 1.8.1
+
+- **VisionSwap for Chrome.** A Chrome extension (version 1.0.0) opens the private account in Chrome's side panel, beside any page: the private balance with Receive, Send, Swap and Wallets, holdings, activity and settings, in a dark, wallet-style layout. It runs the website's own app code and proofs, packaged inside the extension, and talks only to visionswap.net. Accounts come in three ways: link the account open on visionswap.net with one click, import a private key, or create a new one; "Keep me signed in" unlocks with one tap.
+- **"Link to extension" on the site.** The app hands the open account to the extension inside the browser, to that extension's ID only; the extension takes it only from visionswap.net, holds it in memory for two minutes, and opens it only when you press Open.
+- **A privacy policy** at `/privacy` (linked in the footer and from the Terms), covering the site, the Android app and the extension.
+
+## 1.8.0
 
 - **A Wallets tab.** Every Vision wallet in one place, in a fixed order by number: its SOL and value, the tokens it holds, a status ("Ready to use", "Holds tokens", "Buy to finish", "Too small to move", "Arriving") and its actions: buy a token, move the SOL back to the private balance, send it to an address, show its private key, or give it a name kept on the device only. A wallet paid from the private balance ("+ Fund new wallets", or "+ A fresh wallet of mine" on Send) is listed the moment it's paid, as "Arriving" until the SOL lands. Payments to the user's own wallets read "Vision wallet #N (yours)" in Scheduled payments, Activity and messages, and the message after paying them says where the SOL is and what can be done with it, with a way to the Wallets tab.
 - **Calm, one at a time.** Actions started in the Wallets tab run in the background without covering the page. Pressing another wallet's action while one runs puts it next in line; each row keeps its own half-typed address and shows its own result; an emptied wallet stays in place until the next visit. No browser pop-ups.
 - **Several wallets at once.** "+ Fund new wallets" pays 2 to 10 new wallets from the private balance. Buy can pay with the private balance spread across 1, 2, 3, 5 or 10 new wallets, or with Vision wallets already funded ("Same in each" or "All of it", no pool fee). Sell can sell 25%, 50%, 75% or all of one token from every wallet holding it. Ticked wallets can move back or send to one address together. Up to 10 wallets per batch.
-- **Paced to be harder to link.** The wallets take their turns one at a time: "One after another" (a random 10 to 60 seconds apart, the default) or "Back to back" (about 6 seconds apart, fastest, easier to see the wallets belong together), and each amount can vary a little (up to 3%). A card shows each wallet's progress; one that doesn't go through never stops the rest, and "Try those again" retries just those. The progress is kept on the device: if the page closes, wallets that haven't had their turn keep their SOL, and on reopening the app checks where an interrupted wallet got to and asks "Continue" or "Stop", so nothing is ever paid or bought twice.
+- **Paced batches.** The wallets take their turns one at a time: "One after another" (a random 10 to 60 seconds apart, the default) or "Back to back" (about 6 seconds apart, the fastest), and each amount can vary a little (up to 3%). A card shows each wallet's progress; one that doesn't go through never stops the rest, and "Try those again" retries just those. The progress is kept on the device: if the page closes, wallets that haven't had their turn keep their SOL, and on reopening the app checks where an interrupted wallet got to and asks "Continue" or "Stop", so nothing is ever paid or bought twice.
+- **$VSWAP on the landing page.** A new section explains the $VSWAP tokenomics, with the 55-second tokenomics video and links to the Tokenomics page and the app.
 
-- **$VSWAP on the landing page.** A new section explains how holding $VSWAP shares in VisionSwap's revenue (cashback on trading fees, half the platform revenue buying $VSWAP, every buyback burned, a bigger share as the supply shrinks), with the 55-second tokenomics video (served from the site, chapter buttons) and links to the Tokenomics page and the app.
+## 1.7.0
 
-Operator steps for 1.8.0: nothing new to set up, no server or program change (the web app only). If the live site is still on 1.6.2, publishing 1.8.0 brings the 1.7.0 changes below too. After publishing, `/api/health` should show `"version":"1.8.0"` and `"ok":true`.
-
-## What came in 1.7.0
-
-In plain words:
-
-- **Pay any address straight from your wallet, in one step.** On the Send tab, "Pay from: Your wallet" takes the address and the amount the recipient should get, and the wallet approves one deposit of exactly what the payment needs plus the pool fee (the form shows the total first). The deposit goes through screening and the waiting room like any other; once it joins the private balance, the app proves the payment in the browser and the relayer sends it from the pool as a standard SOL transfer. The recipient gets the exact amount, and the wallet never appears next to the payment.
-- **Timing.** "As soon as it's ready", or a random moment within 15 minutes (the default), 1 hour or 24 hours of joining, which makes it harder to match to the deposit. The last choice is remembered on the device.
-- **Resumes by itself.** The page sends it once the deposit joins, so it asks people to keep the page open until it says "Handed to the relayer". Closed sooner, nothing is lost: the SOL is in the private balance, and the payment picks up the next time VisionSwap opens on that device. Which deposit pays whom is kept on that device only. A payment is never sent twice, one more than a day old asks first, and "Stop and keep it private" keeps the SOL in the private balance. A "Payments on their way" card shows each one.
+- **Pay any address straight from your wallet, in one step.** On the Send tab, "Pay from: Your wallet" takes the address and the amount the recipient should get, and the wallet approves one deposit of exactly what the payment needs plus the pool fee (the form shows the total first). The deposit goes through screening and the waiting room like any other; once it joins the private balance, the app proves the payment in the browser and the relayer sends it from the pool as a standard SOL transfer. The recipient gets the exact amount.
+- **Timing.** "As soon as it's ready", or a random moment within 15 minutes (the default), 1 hour or 24 hours of joining. The last choice is remembered on the device.
+- **Resumes by itself.** The page sends it once the deposit joins, and shows "Handed to the relayer" when it has gone. If the page closes sooner, the SOL is safe in the private balance and the payment picks up the next time VisionSwap opens on that device. Which deposit pays whom is kept on that device only. A payment is never sent twice, one more than a day old asks first, and "Stop and keep it private" keeps the SOL in the private balance. A "Payments on their way" card shows each one.
 - **Buys.** The "Shield first" pop-up now shows only on Buy, and a buy, limit buy or DCA that needs more than the private balance offers "Add X SOL from my wallet", which shields just the difference and keeps the form filled in. An account opened with a private key and nothing in it yet sees the QR code way in on the Send tab.
 
-Operator steps for 1.7.0: nothing new to set up, no server or program change. After publishing, `/api/health` should show `"version":"1.7.0"` and `"ok":true`.
-
-## What came in 1.6.0
-
-In plain words:
+## 1.6.0
 
 - **Every private payment to another wallet or an exchange arrives as a standard SOL transfer.** A payment to any address outside the user's own VisionSwap wallets leaves the pool through a one-time sending address made for that payment alone, which passes the exact amount on in an ordinary wallet-to-wallet SOL transfer, signed beforehand in the user's browser. Exchanges and wallets credit it like any other deposit, and the app's activity shows its Transaction ID, ready to give an exchange that asks. Payments sent now, sent later, split payments, "Send it yourself" and payment links all arrive this way; payments to the user's own Vision wallets, deposit addresses and fee wallets are paid by the pool directly, as before.
-- **Always finished.** The one-time address is sealed into the proof, and only the user's app holds its key, made again from the user's own notes on any device. If a delivery is ever interrupted, the server finishes it, and the app finishes it the next time it opens. SOL that comes back to a sending address (an exchange returning a deposit, say) shows under Deliveries, ready to move into the private balance or send on.
+- **Always finished.** The one-time address is sealed into the proof, and only the user's app holds its key, made again from the user's own notes on any device. If a delivery is ever interrupted, the service finishes it, and the app finishes it the next time it opens. SOL that comes back to a sending address (an exchange returning a deposit, say) shows under Deliveries, ready to move into the private balance or send on.
 - **Recipient checks.** Token accounts, program addresses and nonce accounts are caught before anything moves, a program-managed address such as a multisig vault is paid once the sender confirms it, and an address that only looks like an earlier recipient is shown side by side with it first.
 - **Costs.** A payment to an outside address costs 0.000012 SOL more (the network fee of its delivery). "Send it yourself" costs 0.000005 SOL more (one more signature).
 
-Operator steps for 1.6.0 (in `docs/REPLIT.md` and the two Replit prompts): nothing new to create. After publishing, check that `/api/health` shows `"version":"1.6.0"` and `"ok":true`, and that `/api/pool/info` has a `delivery` section with `"nonce":true`. The relayer keeps a small reserve of durable nonce accounts for payments that go out while the page is closed (about 0.046 SOL of refundable rent to start) and makes them by itself. Optional: open `/app#delivery-check` to send a small amount to an exchange deposit address once as L1 and once as N2 and see it credited. Changing the relayer key (`RELAYER_SECRET`) makes payments already scheduled to outside addresses wait for a fresh signature, which each owner's app makes by itself the next time it opens; their SOL stays in their private balance meanwhile.
-
-## What came in 1.5.0
-
-In plain words:
+## 1.5.0
 
 - **Pro orders.** Take-profit in up to 4 steps, trailing stops, a separate price room for the stop-loss, and edits to live orders with no new approval. DCA can pause and resume, and its timing varies a little by default (or runs exact). Limit buys never pay more than the user's price, taxed tokens included; take-profit steps never sell below their price per token traded. Stop-losses are confirmed on a newer price (or, for a token whose prices go quiet, on a live sell quote every 2 minutes) and go first in the queue, with a higher network priority.
-- **Orders and scheduled payments survive every update.** They are kept sealed (encrypted) in Replit App Storage, so a republish no longer loses them. An order's key is deleted the moment the order ends.
-- **Fair when busy.** Jupiter calls are shared in four lanes with guaranteed shares (trades 40%, quotes 30%, order price checks 25%, display prices 5%), so order checks keep running under load; each visitor gets a fair share when others are waiting, and sends and confirmations have network room set aside.
+- **Orders and scheduled payments carry on across every update.** They are kept sealed (encrypted) in durable storage, and an order's key is deleted the moment the order ends.
+- **Fair when busy.** Swap-route calls are shared in four lanes with guaranteed shares (trades 40%, quotes 30%, order price checks 25%, display prices 5%), so order checks keep running under load; each visitor gets a fair share when others are waiting, and sends and confirmations have network room set aside.
 - **Trader controls.** Normal, Fast and Turbo speeds, a custom price room (0.1% to 25%), Max and 25/50/75/100% chips, a minimum received that the chain enforces, and "Buy with this SOL" on a Vision wallet.
-- **Payments.** Send later goes at a random moment inside the window and may go a little early (still inside it) rather than go stale; several recipients sent "now" go out over about two minutes; one payment link per payer; "Send it yourself" uses a fresh fee wallet for each payment.
-- **Hardening.** A strict content security policy, private keys sealed to the browser when "Keep me signed in" is on, passkeys confirmed and backed up before any SOL goes in, and many smaller reliability fixes.
-
-Operator steps for 1.5.0 (all in `docs/REPLIT.md` and the two Replit prompts): create an **App Storage bucket** once, add a free **`JUPITER_API_KEY`** (strongly recommended), then after publishing check that `/api/health` shows `"version":"1.5.0"`, `"ok":true`, `state.backend` = `"replit app storage"` and `jupiter.key` = `true`, and that `/api/ip-check` shows `"ok":true`.
+- **Payments.** Send later goes at a random moment inside the window; several recipients sent "now" go out over about two minutes; one payment link per payer; "Send it yourself" uses a fresh fee wallet for each payment.
+- **Hardening.** A strict content security policy, private keys sealed to the browser when "Keep me signed in" is on, passkeys confirmed and backed up before any SOL goes in, and many reliability improvements.

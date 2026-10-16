@@ -4,8 +4,10 @@ import { API } from "../lib/config";
 export type Stats = {
   network?: string;
   solUsd: number | null;
-  shieldedSol: number | null;
+  /** the tree's leaf count (it counts change and empty outputs too, so it isn't shown as a measure of use) */
   notes: number | null;
+  /** addresses that deposited into the pool and were never paid by it, all time (null while the server is still reading the history) */
+  outsideDepositors?: number | null;
   exits24h: number | null;
 };
 
@@ -44,13 +46,9 @@ export function LiveStats({ onStats }: { onStats?: (s: Stats) => void }) {
           <dt>SOL price (USD)</dt>
           <dd className="mono">${fmt(s?.solUsd)}</dd>
         </div>
-        <div>
-          <dt>Shielded SOL</dt>
-          <dd className="mono">{fmt(s?.shieldedSol, 2)}</dd>
-        </div>
-        <div>
-          <dt>Notes in the pool</dt>
-          <dd className="mono">{fmt(s?.notes, 0)}</dd>
+        <div title="Addresses that have deposited into the pool and were never paid by it, all time: Vision wallets and one-time sending addresses, which the pool itself funded, aren't counted.">
+          <dt>Outside depositors</dt>
+          <dd className="mono">{fmt(s?.outsideDepositors, 0)}</dd>
         </div>
         <div>
           <dt>Private exits, 24h</dt>

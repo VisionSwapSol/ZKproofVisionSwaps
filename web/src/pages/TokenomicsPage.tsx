@@ -142,9 +142,6 @@ function ContractAddress() {
 export default function TokenomicsPage() {
   const root = useRef<HTMLDivElement>(null);
   useRise(root);
-  useEffect(() => {
-    document.title = "VisionSwap · $VSWAP tokenomics";
-  }, []);
   return (
     <div ref={root} className="page tokenomics">
       <Header />

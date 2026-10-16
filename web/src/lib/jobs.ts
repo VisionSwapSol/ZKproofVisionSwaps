@@ -2,6 +2,7 @@
  * Bookkeeping for scheduled payments and split sends, kept apart from the engine so the rules
  * can be tested on their own.
  */
+import { secureRandom } from "./poll";
 
 /**
  * "unclear": its SOL was spent and it can't be told here whether by it (check the activity; never offered again).
@@ -9,7 +10,52 @@
  * "waiting": that transfer is this app's to finish (it does so by itself while it is open).
  */
 export type JobStatus = "scheduled" | "sending" | "delivering" | "waiting" | "sent" | "failed" | "stale" | "cancelled" | "unclear";
-type JobLike = { id: string; status: JobStatus; window?: string; created: number; refreshed?: number; nextTry?: number; rootsLeft?: number | null; soon?: boolean; confirm?: unknown };
+type JobLike = {
+  id: string;
+  status: JobStatus;
+  window?: string;
+  created: number;
+  latest?: number;
+  refreshed?: number;
+  nextTry?: number;
+  rootsLeft?: number | null;
+  soon?: boolean;
+  confirm?: unknown;
+  ripening?: boolean;
+  goAt?: number;
+};
+
+/**
+ * A payment still waiting here for its notes to be old enough (see ripening in the engine) goes out at
+ * once when it falls due this close to its deadline: a payment sent now, which names the newest root.
+ * (One with a moment of its own, `goAt`, goes then: see drawGoAt.)
+ */
+export const RIPE_DUE_MS = 60_000;
+
+/**
+ * The moment a payment kept here for its notes goes by itself if they don't get old enough first
+ * (a payment sent now, handed over to go within two minutes): drawn at random over its window, like
+ * the relayer's own moments (never in the window's first tenth, and early enough to be out by the
+ * deadline), so it is never a fixed time after its notes joined the pool. `rnd` gives numbers in
+ * [0, 1): the secure random source unless a test passes its own.
+ */
+export function drawGoAt(created: number, latest: number, rnd: () => number = secureRandom): number {
+  const span = Math.max(0, latest - created);
+  const first = created + Math.round(span * 0.1);
+  const last = latest - RIPE_DUE_MS;
+  if (last <= first) return first;
+  return first + Math.floor(rnd() * (last - first));
+}
+
+/**
+ * Payments sent later: the cuts and joins that prepare their notes are spaced out, each a random
+ * 15 to 60 seconds after the one before, so they don't run back to back (and the payments
+ * themselves go at their own random moments later).
+ */
+export const PREP_GAP_MS: readonly [number, number] = [15_000, 60_000];
+
+/** When a payment kept here for its notes goes by itself: its own moment, or (one made before there were any) just before its deadline. */
+export const goAtOf = (j: { goAt?: number; latest: number }) => j.goAt ?? j.latest - RIPE_DUE_MS;
 
 /** How long each send-later window is. */
 export const WINDOW_LEN: Record<string, number> = { "2m": 2 * 60_000, "15m": 15 * 60_000, "1h": 3_600_000, "24h": 24 * 3_600_000 };
@@ -118,10 +164,11 @@ export const definite = (e: { status: number; data: Record<string, unknown> | nu
 /**
  * The live jobs to ask about, those whose deadline comes first at the front, in groups the relayer
  * answers in one go. A job cancelled here whose cancel the relayer couldn't confirm yet is asked about too.
+ * One still waiting here for its notes to be old enough (`ripening`) was never handed over: not asked about.
  */
-export function pollGroups<J extends { id: string; status: JobStatus; latest: number; cancelPending?: boolean }>(list: J[], size = 50): string[][] {
+export function pollGroups<J extends { id: string; status: JobStatus; latest: number; cancelPending?: boolean; ripening?: boolean }>(list: J[], size = 50): string[][] {
   const ids = list
-    .filter((j) => isOpen(j.status) || j.cancelPending)
+    .filter((j) => (isOpen(j.status) && !(j.ripening && j.status === "stale")) || j.cancelPending)
     .sort((a, b) => a.latest - b.latest)
     .map((j) => j.id);
   const out: string[][] = [];
@@ -133,12 +180,16 @@ export function pollGroups<J extends { id: string; status: JobStatus; latest: nu
 export const FEW_ROOTS = 100;
 
 /**
- * Whether the open app should make this job a fresh proof now, and why: it went stale, its root is
- * getting old in a busy pool, or it goes out soon and was proved a while ago (a fresh proof then
- * shows the moment it leaves, not the moment it was scheduled). Failures back off.
+ * Whether the open app should make this job a fresh proof now, and why: it went stale (or was never
+ * proved: its notes were too new, see ripening), its root is getting old in a busy pool, or it goes
+ * out soon and was proved a while ago (a fresh proof then names the newest root, like any payment
+ * sent at once, instead of the moment it was scheduled). Failures back off.
  */
 export function needsProof(j: JobLike, now: number): "stale" | "roots" | "timing" | null {
   if (j.nextTry && j.nextTry > now) return null;
+  // one never handed over because its notes were too new: proved for later once they're old enough
+  // ("stale"), or, once its own random moment comes (or it is due), sent at once like any payment sent now ("timing")
+  if (j.status === "stale" && j.ripening && !j.confirm && j.latest != null && now >= goAtOf({ goAt: j.goAt, latest: j.latest })) return "timing";
   if (j.status === "stale") return j.confirm ? null : "stale";
   if (j.status !== "scheduled") return null;
   if (j.rootsLeft != null && j.rootsLeft < FEW_ROOTS && now - (j.refreshed ?? 0) > 10 * 60_000) return "roots";
@@ -275,4 +326,55 @@ export function prepPlan(amounts: bigint[], needs: bigint[], fee: bigint, exact:
     }
   }
   return { steps: prepRounds(needs.length), ok: false };
+}
+
+// ─── proofs held for later and the pool's roots (VS-16) ───
+
+/** Said on a scheduled payment whose held proof the pool moved past: it gets a fresh one while the app is open. */
+export const ROOT_MOVED_NOTE = "The pool moved on past this payment's proof, so it gets a fresh one while VisionSwap is open.";
+
+/**
+ * Whether a scheduled payment's held proof names a root that a read of the pool's recent roots
+ * (`ring`, hex, read at `ringAt`) doesn't hold: then it can never land. Only a read made after the
+ * proof (`refreshed`, else `created`, plus a little margin) counts: an older read can't know its root.
+ */
+export function rootGone(
+  j: { request?: unknown; refreshed?: number; created: number },
+  ring: ReadonlySet<string> | null,
+  ringAt: number,
+  margin = 5_000,
+): boolean {
+  const root = String((j.request as { root?: unknown } | undefined)?.root ?? "").toLowerCase();
+  if (!ring || !ring.size || !/^[0-9a-f]{64}$/.test(root)) return false;
+  if (ringAt < (j.refreshed ?? j.created) + margin) return false;
+  return !ring.has(root);
+}
+
+// ─── a payment sent now to one of this account's Vision wallets (see the engine's sendMany) ───
+
+/**
+ * A payment sent now to one of this account's Vision wallets, followed from the moment it's handed to the relayer
+ * until its wallet is read after it landed (`at`: when it landed, Infinity until then). `nfs`: the notes it spends;
+ * `base`: what the wallet showed as it went out.
+ */
+export type Paying = { amount: bigint; nfs: string[]; since: number; at: number; base: bigint };
+
+/** Followed for five minutes at most (as long as spent notes stay hidden from the balance). */
+export const PAYING_MS = 5 * 60_000;
+
+/**
+ * Whether a read of the wallet a payment is on its way to waits: it shows more than the wallet shows now while the
+ * payment's notes are still in the private balance (they leave it once the relayer has answered). Taken then, the
+ * payment would be counted twice, in the balance and in the wallet.
+ */
+export function holdPayingRead(x: Paying | undefined, shown: bigint, read: bigint, unspent: ReadonlySet<string>, now: number): boolean {
+  return !!x && now - x.since <= PAYING_MS && read > shown && x.nfs.some((nf) => unspent.has(nf));
+}
+
+/**
+ * Whether the total counts the payment as landing in its wallet: its notes have left the balance, and the wallet as
+ * shown doesn't hold it yet. A read that shows it there ends that at once, whenever that read was made.
+ */
+export function payingLands(x: Paying, shown: bigint, unspent: ReadonlySet<string>, now: number): boolean {
+  return now - x.since <= PAYING_MS && !x.nfs.some((nf) => unspent.has(nf)) && shown < x.base + x.amount;
 }

@@ -1,13 +1,18 @@
 import { useEffect, useState } from "react";
 import { Header } from "../components/Header";
 import { Footer } from "../components/Footer";
-import { api, explorerAccount } from "../lib/net";
+import { api, conn, explorerAccount } from "../lib/net";
+import { measuredMsPerSlot, msPerSlotFromSamples, saveMsPerSlot, slotsToText } from "../lib/slottime";
+import { PAGES, longDate } from "../seo/pages";
+import { BUSINESS_EMAIL, SUPPORT_EMAIL, mailto } from "../lib/contacts";
 
 type Info = {
   network: string;
   programId: string;
   feeBps: number;
   depositDelaySlots: string;
+  /** Solana's measured slot time, when the server publishes it (slots have run at about 0.2 s, not 0.4 s, since October 2026) */
+  msPerSlot?: number;
   minDeposit: string;
   maxDeposit: string;
   tvlCap?: string;
@@ -69,6 +74,7 @@ const SECTIONS: [string, string][] = [
   ["fees", "Fees and limits"],
   ["keys", "Your keys"],
   ["passkeys", "Passkeys"],
+  ["android", "The Android app"],
   ["security", "Security and trust"],
   ["onchain", "Check it on-chain"],
   ["compliance", "Screening and the waiting room"],
@@ -151,14 +157,28 @@ const FAQ: [string, string][] = [
 export default function DocsPage() {
   const [info, setInfo] = useState<Info | null>(null);
   const [lim, setLim] = useState<Limits>(LIMITS);
+  const [sampled, setSampled] = useState<number | null>(null);
   useEffect(() => {
-    document.title = "VisionSwap · Docs";
     api<Info>("/api/pool/info").then(setInfo).catch(() => {});
     api<Partial<Limits>>("/api/orders/limits")
       .then((l) => setLim({ ...LIMITS, ...l }))
       .catch(() => {});
+    // the network's own recent slot time (kept for next time too)
+    conn()
+      .getRecentPerformanceSamples(6)
+      .then((s) => {
+        const ms = msPerSlotFromSamples(s);
+        if (ms) {
+          saveMsPerSlot(ms);
+          setSampled(ms);
+        }
+      })
+      .catch(() => {});
   }, []);
-  const delayMin = info ? Math.max(1, Math.round((Number(info.depositDelaySlots) * 0.4) / 60)) : null;
+  // the waiting room is set in slots; it is put in time only from a measured slot time (the server's
+  // figure, the network's, or the one this device measured last), never a fixed 0.4 s
+  const delay = info ? slotsToText(info.depositDelaySlots, measuredMsPerSlot(info.msPerSlot, sampled)) : null;
+  const waitFor = delay ? ` for ${delay}` : " for a short while (the app shows the time left)";
   const fee = info ? `${info.feeBps / 100}%` : "0.8%";
 
   return (
@@ -181,11 +201,14 @@ export default function DocsPage() {
             The short version: you put SOL into a shared pool, and later take it out somewhere else. A zero-knowledge proof convinces the
             Solana program that the money is yours without saying which deposit it came from.
           </p>
+          <p className="muted docs-updated">
+            Last updated {longDate(PAGES.docs.updated)}. Short answers to common questions are in the <a href="/faq">FAQ</a>.
+          </p>
 
           <h2 id="what">What VisionSwap is</h2>
           <p>
-            VisionSwap is a shielded pool for SOL on Solana, plus an app that uses it to send SOL and to buy and sell any token without a
-            public link back to the wallet you started from. The pool is a Solana program. The app runs in your browser. A small server
+            VisionSwap is a shielded pool for SOL on Solana, plus an app that uses it to send SOL and to buy and sell any token, paid
+            from the pool instead of from the wallet you started from. The pool is a Solana program. The app runs in your browser. A small server
             relays transactions, serves public pool data, sends scheduled payments and runs your orders. It never holds the keys to your
             private balance.
           </p>
@@ -197,7 +220,7 @@ export default function DocsPage() {
               carries a <em>commitment</em>: a hash of the amount, your private key's public half and a random value. Only you can open it.
             </li>
             <li>
-              <strong>Wait.</strong> The deposit sits in a public waiting room{delayMin != null ? ` for about ${delayMin} minute${delayMin === 1 ? "" : "s"}` : ""} while
+              <strong>Wait.</strong> The deposit sits in a public waiting room{info ? waitFor : ""} while
               it is screened, then anyone can add it to the pool's Merkle tree. Every note in the tree looks alike.
             </li>
             <li>
@@ -208,32 +231,42 @@ export default function DocsPage() {
             </li>
             <li>
               <strong>Relay.</strong> A relayer signs and pays for that transaction, so your own wallet never appears in it. The
-              recipient, the amount and every fee are sealed inside the proof, so the relayer cannot change them.
+              recipient, the amount, the relayer's fee and the highest pool fee you accept are bound into the proof, so the relayer cannot
+              change them.
             </li>
             <li>
               <strong>Deliver.</strong> A payment to an address outside your own VisionSwap wallets is paid to a one-time sending
               address made for that payment, and that address passes the exact amount on in a standard SOL transfer your browser signed
               beforehand. Every private payment to another wallet or an exchange arrives as a standard SOL transfer from a one-time
-              sending address, so exchanges and wallets credit it like any other deposit.
+              sending address, so exchanges and wallets credit it like any other deposit. Anyone can see that the payment came out of
+              the pool; the proof keeps which deposit paid for it to itself.
             </li>
           </ol>
 
           <h2 id="visible">What stays hidden, and what doesn't</h2>
           <p>
-            Hidden: which deposit paid for which withdrawal, and your private balance. Visible to everyone, as on any blockchain: that a
-            wallet deposited into the pool and how much, and that a withdrawal happened, how much, and where it went.
+            Hidden: which deposit paid for which withdrawal (no transaction says), and your private balance. Visible to everyone, as on
+            any blockchain: that a wallet deposited into the pool, how much and when; that a withdrawal happened, how much, when and where
+            it went; and how much the pool holds in total. A few private steps are recognisable for what they are, though not whose they
+            are: a transfer inside the pool that joins or cuts notes (it pays only the relayer's fee), a payment's one-time sending
+            address (one step from the pool), and a payment sent later (its delivery is co-signed by the relayer's published key).
           </p>
           <p>
-            That means your privacy grows with the crowd and with good habits. If you shield 3.217 SOL and someone receives 3.19 SOL a
-            minute later while the pool is quiet, an observer can guess. Wait, use amounts that differ from your deposit, send later, and
-            never send back to the wallet you shielded from. The app reminds you.
+            That means your privacy grows with the crowd and with good habits. The proof hides which deposit paid, but amounts and timing
+            can still match the two: if you shield 3.217 SOL and someone receives 3.19 SOL a minute later while the pool is quiet, an
+            observer can guess. A payment from your wallet deposits a standard amount and keeps the rest private as change, so its
+            deposit doesn't mirror the payment, and sending it later keeps their timing apart too. Wait, use amounts that differ from your
+            deposit, send later, and never send back to the wallet you shielded from. The app reminds you.
           </p>
 
           <h2 id="vision">Vision wallets</h2>
           <p>
             Buying privately funds a brand-new Solana address, a Vision wallet, straight from the pool, and swaps through Jupiter from
-            there. Nothing on-chain ties that address to you. Selling from a Vision wallet sends the SOL back into the pool. Vision
-            wallets are ordinary Solana keypairs derived from your account, so you can export any of them into another Solana wallet app.
+            there. The pool keeps which deposit paid for it to itself, so the wallet doesn't start from yours. From then on, a Vision
+            wallet is an ordinary public wallet: its funding from the pool, its trades and its deposits back into the pool are visible and
+            connected to each other, so use a fresh one when you want a fresh start. Selling from a Vision wallet sends the SOL back into
+            the pool. Vision wallets are ordinary Solana keypairs derived from your account, so you can export any of them into another
+            Solana wallet app.
             On a new device, the app finds your earlier Vision wallets from their on-chain history; <strong>Check for more</strong> in the
             Wallets tab looks again.
           </p>
@@ -259,7 +292,8 @@ export default function DocsPage() {
             Every account has deposit addresses: ordinary Solana addresses whose keys come from your account, like Vision wallets. The
             Shield tab shows one as a QR code. Send SOL to it from any wallet or exchange, without connecting anything. When it arrives,
             the app screens where it came from and moves it into the waiting room, then it joins your private balance like any deposit.
-            The address ends at exactly zero.
+            The deposit takes everything at the address; only the waiting room's small account deposit comes back to it afterwards
+            (see below), and it stays there until that address's next deposit.
           </p>
           <p>
             What arrives pays for its own deposit: the pool fee, Solana's network fee, and a small account deposit for the waiting room
@@ -317,7 +351,8 @@ export default function DocsPage() {
               of each wallet's holding. Each wallet's SOL goes back to your private balance right after its sale.
             </li>
             <li>
-              <strong>Moving back or sending</strong>: tick wallets in the Wallets tab and use the bar that appears.
+              <strong>Moving back or sending</strong>: tick wallets in the Wallets tab and use the bar that appears. Sending several
+              wallets to one address shows on-chain that they belong together.
             </li>
           </ul>
           <p>
@@ -326,7 +361,9 @@ export default function DocsPage() {
             see the wallets belong together. Wallets that buy the same token at the same moment with the same amount are easy to group on
             the chain, so spacing them out and varying each amount a little (up to 3%, on by default) makes them harder to link. Prices can
             move between wallets. With One after another, each wallet trades at the price of its own turn, within your price room; with
-            Back to back, the least each one may get is its share of the quote you saw.
+            Back to back, the least each one may get is its share of the quote you saw. With One after another, when a new wallet's
+            funding needs pieces of your private balance joined first, the joins get a turn of their own and the funding and buy come
+            at the next turn, after another random gap, so the joins never run back to back with the payment.
           </p>
           <p>
             <strong>Progress, and closing the page.</strong> A card shows each wallet as it goes: waiting, its turn coming up, done with its
@@ -342,15 +379,17 @@ export default function DocsPage() {
           <p>
             Place a <strong>limit buy</strong> or a <strong>DCA</strong> on the Buy tab, and a <strong>take-profit</strong>, a{" "}
             <strong>stop-loss</strong>, a <strong>trailing stop</strong> or a mix of them on the Sell tab. They run on their own, even with
-            the page closed, and keep running through site updates. A buy order funds a fresh Vision wallet from the pool, so nothing links
-            it to you; a sell order watches tokens you already hold in a Vision wallet.
+            the page closed, and keep running through site updates. A buy order funds a fresh Vision wallet from the pool, not from your
+            wallet, and makes all of its buys from that one wallet; a sell order watches tokens you already hold in a Vision wallet.
           </p>
           <p>
             <strong>How the permission works.</strong> Each order has its own single-purpose key, derived from your account. The Vision
             wallet gives that key permission, on-chain, over exactly the amount the order sets aside: those tokens for a sell, or that SOL
             (held as wrapped SOL) for a buy. The token program caps it at that amount; VisionSwap's order service trades only for that
-            order and sends the result back to the same Vision wallet. The order service keeps order details encrypted at rest and deletes
-            an order's key the moment the order ends. Cancelling removes the permission on-chain.
+            order and sends the result back to the same Vision wallet. The permission covers the whole amount for the order's whole life
+            (for a DCA, its full budget), and while it lasts the order service holds the key that uses it. The order service keeps order
+            details encrypted at rest and deletes an order's key from its records the moment the order ends. Cancelling removes the
+            permission on-chain.
           </p>
           <p>
             <strong>How a trade runs.</strong> The order service watches prices from Jupiter: every few seconds when the price is close to
@@ -515,16 +554,20 @@ export default function DocsPage() {
           <p>
             With a wallet connected, the Send tab can pay any Solana address straight from your wallet. Pick{" "}
             <strong>Pay from: Your wallet</strong>, type the address and the amount they receive, and approve once. Your wallet makes
-            one deposit of exactly what the payment needs, plus the pool fee, and the form shows the total before you approve. The
-            deposit waits in the public waiting room{delayMin != null ? ` for about ${delayMin} minute${delayMin === 1 ? "" : "s"}` : ""} while it is screened, then
-            joins your private balance; your browser then proves the payment and the relayer sends it from the pool as a standard SOL
-            transfer. The recipient gets exactly the amount you typed, and your wallet never appears next to the payment.
+            one deposit of a standard size (0.01, 0.02, 0.03, 0.05, 0.1 SOL, and so on up through 1, 2, 3, 5, 10 SOL and beyond): the
+            smallest one that covers the payment and its fees with a little to spare, plus the pool fee on the deposit. The form shows
+            the deposit, what stays in your private balance and the total before you approve. The deposit waits in the public waiting
+            room{info ? waitFor : ""} while it is screened, then joins your private balance; your browser then proves the payment and
+            the relayer sends it from the pool as a standard SOL transfer. The recipient gets exactly the amount you typed, the payment
+            itself comes from the pool, not from your wallet, and the rest of the deposit stays in your private balance as change, free
+            to spend as soon as the payment has gone out. <strong>Max</strong> leaves a small random amount of change too.
           </p>
           <p>
-            You choose when it goes out: <strong>As soon as it's ready</strong>, or at a random moment within{" "}
-            <strong>15 minutes</strong>, <strong>1 hour</strong> or <strong>24 hours</strong> of joining your private balance. A random
-            moment makes it harder to match to your deposit, so 15 minutes is the default, and your last choice is remembered on this
-            device.
+            You choose when it goes out: <strong>As soon as it's ready</strong>, or later, at a random moment within{" "}
+            <strong>15 minutes</strong>, <strong>1 hour</strong> or <strong>24 hours</strong> of joining your private balance. Later is
+            the more private choice: a payment that goes out right after its deposit is easier to pair with it by timing, and a random
+            moment later makes that much harder. 15 minutes is the default, and your last choice is remembered on this device. Paying
+            from a balance you shielded earlier hides it best.
           </p>
           <p>
             Keep the page open until the payment says <strong>Handed to the relayer</strong> under Payments on their way. If you close
@@ -546,13 +589,19 @@ export default function DocsPage() {
             <strong>1 hour</strong> or <strong>24 hours</strong> on the Send tab and your browser makes the proof straight away; the
             relayer sends it at a <strong>random moment inside that window</strong>, even with the page closed, so it doesn't land right
             after your deposit and is much harder to match to it by timing. Keep VisionSwap open near the send time and it makes a fresh
-            proof, which hides the timing best.
+            proof, which hides the timing best. When the SOL for it arrived or was set aside only moments before, the proof waits until
+            up to 33 more notes have joined the pool (so it doesn't point back to them), or until its own random moment inside the window
+            comes, if that is sooner, and then goes like a payment sent now: keep VisionSwap open until it shows Scheduled.
           </p>
           <p>
-            The proof seals the recipient, the amount and the fee, so the relayer can send that exact payment or nothing. Only what you're
+            The proof binds the recipient, the amount, the relayer's fee and the highest pool fee, so the relayer can send that exact payment or nothing. Only what you're
             sending is held until it goes out, and you can cancel it under Scheduled payments until it does. When no note of the right
-            size exists, the app cuts one off with a private transfer inside the pool, which costs one relayer fee; the form shows it
-            before you confirm. A proof names a recent state of the pool; if the pool gets
+            size exists, the app cuts one off with a transfer inside the pool, which costs one relayer fee; the form shows it before you
+            confirm. That transfer is visible on-chain as a pool transaction that pays only the relayer, though not whose it is. When
+            several such cuts or joins are needed, the app spaces them out, a random 15 to 60 seconds apart, and the payments themselves
+            go later, so none of them runs back to back with a payment. Sent now instead, a payment from a balance in several pieces
+            joins them right before it goes. A proof
+            names a recent state of the pool, which shows roughly when it was made; if the pool gets
             busy, a payment may go out a little early, still inside your window, rather than let its proof go stale. With the app open,
             it also makes a fresh proof shortly before the payment goes. Scheduled payments keep running through site updates.
           </p>
@@ -568,8 +617,9 @@ export default function DocsPage() {
             Sent <strong>Now</strong>, they go out one by one at random moments over about two minutes, so they don't land together. Sent
             later, each has its own random moment and its own note. Paid or scheduled rows leave the form as they go, so pressing again
             never pays anyone twice; if a split stops partway, the message names who was paid, who is scheduled and which payment didn't
-            go. Recipients are checked up front, and again as each payment goes out. Spreading payments out may first need a private transfer inside the
-            pool to cut notes to size, which costs one relayer fee; the form shows it before you confirm.
+            go. Recipients are checked up front, and again as each payment goes out. Spreading payments out may first need a transfer inside the
+            pool to cut notes to size, which costs one relayer fee; the form shows it before you confirm. Payments that follow each other
+            closely, from the same notes, can sometimes be grouped on-chain as coming from one sender.
           </p>
 
           <h2 id="links">Payment links</h2>
@@ -583,7 +633,7 @@ export default function DocsPage() {
             Make <strong>one link per payer</strong>: every payer then gets an address of their own, and nobody's payment sits next to
             anyone else's. What arrives moves into your private balance like any QR deposit, and Payment requests, kept on the device that made
             the link, shows what each link received. When several links are paid, they move in one at a time while VisionSwap is open, in
-            random order and a random few minutes apart, so payers can't be grouped by when their payments moved in; tap{" "}
+            random order and a random few minutes apart, so payers are much harder to group by when their payments moved in; tap{" "}
             <strong>Move into the pool</strong> to send one now. A brief hiccup doesn't stop a deposit: it quietly tries again, and if it
             keeps failing the row offers <strong>Try again</strong>.
           </p>
@@ -596,7 +646,8 @@ export default function DocsPage() {
             the payment pays its costs back, so it only needs a little SOL up front. If an amount is too big to send this way in one go, the app says the most it can send,
             and you send the rest as a second payment. Fund
             the fee wallet with a withdrawal from an exchange, or with <strong>Fund it from my private balance</strong> while the relayer
-            still works. The money still comes from the pool; only the fee payer shows in the transaction.
+            still works. The money still comes from the pool; only the fee payer shows in the transaction, and it is public, so a Vision
+            wallet as fee payer ties that payment to the wallet's trades. A fresh fee wallet keeps them apart.
           </p>
 
           <h2 id="exchanges">Sending to an exchange</h2>
@@ -659,8 +710,9 @@ export default function DocsPage() {
             one-way derivation, so none of them reveals your spending or viewing key.
           </p>
           <p>
-            Because the signature is the key, <strong>only ever sign that message inside VisionSwap</strong>. A site that tricks you into
-            signing it could spend your private balance. Some hardware wallets cannot sign messages; use a software wallet for VisionSwap.
+            Because the signature is the key, <strong>only ever sign that message inside VisionSwap</strong>, and check that your wallet
+            names visionswap.net as the site asking. The message itself doesn't name the site, so a site that tricks you into signing it
+            could spend your private balance. Some hardware wallets cannot sign messages; use a software wallet for VisionSwap.
           </p>
           <p>
             You can also open an account with no wallet at all. The app then creates a private key in your browser: 32 random bytes,
@@ -686,44 +738,93 @@ export default function DocsPage() {
             file). Your device or password manager needs to support passkey PRF. Passkeys work on visionswap.net.
           </p>
 
+          <h2 id="android">The Android app</h2>
+          <p>
+            VisionSwap for Android opens the website full screen from your home screen: the same app, with the same accounts, wallets
+            and forms. Download it straight from the <a href="/#get-app">homepage</a>, open the file and tap Install (the first time,
+            Android asks you to allow installs from Chrome: Settings, then Allow from this source). It always shows the live website, so it stays up to date by itself.
+          </p>
+          <ul>
+            <li>
+              <strong>Wallet apps on your phone</strong> connect through the Mobile Wallet Adapter. The first time, the app asks you to
+              allow connections to apps on this device: tap Allow. A new account then asks your wallet to sign twice, with one tap on{" "}
+              <strong>Sign again</strong> in between. With several wallet apps on the phone, Android asks which one to open each time:
+              pick the wallet you connected.
+            </li>
+            <li>
+              <strong>Links</strong> to visionswap.net, payment links included, open in the app. Links to other sites open in your
+              browser.
+            </li>
+            <li>
+              <strong>Its signature</strong>: the app's signing certificate has the SHA-256 fingerprint shown under the download button,
+              which is also listed in{" "}
+              <a href="/.well-known/assetlinks.json" target="_blank" rel="noreferrer noopener">
+                /.well-known/assetlinks.json
+              </a>
+              . Android installs an update only if it is signed with this same key.
+            </li>
+            <li>
+              <strong>Your data</strong> stays in your phone's browser storage for visionswap.net, as on the website. The app asks Android
+              for no permissions (see the <a href="/privacy">Privacy policy</a>).
+            </li>
+            <li>
+              <strong>Tip: turn off Touch to Search.</strong> Chrome on Android can send words you tap or select, with the text around
+              them, to Google to look them up. VisionSwap's app pages keep a tap from opening it; text you select with a long press can still
+              open it. To switch it off, in Chrome tap ⋮, then Settings, Google services, Touch to Search (older versions have it under
+              Sync and Google services, or Privacy). The app uses Chrome's settings, so this covers it as well.
+            </li>
+          </ul>
+
           <h2 id="security">Security and trust</h2>
           <ul>
             <li>
               Funds sit in a program-owned vault. They can only leave against a valid proof, or back to the original depositor while still
-              in the waiting room. As the program stands, no admin setting can move, freeze or redirect them, and private sends and
-              withdrawals can't be paused.
+              in the waiting room. No admin setting can move or redirect them; an upgrade to the program could change those rules, as the{" "}
+              <a href="/security">Security</a> page explains.
             </li>
             <li>
-              The program is upgradeable during launch so bugs can be fixed. The upgrade key is held by the operator; the plan is to move
-              it to a multisig with a public delay and, once the code has been audited, to make the program permanent.{" "}
-              {info &&
-                (noMax(info) && noCap(info)
-                  ? "There are no deposit limits, so only shield what you could afford to lose. "
-                  : "Until then, deposit limits keep the amount at risk small. ")}
-              While the program can be upgraded, an upgrade could change any of its rules, including the ones above. The live code's
-              fingerprint is below, so anyone can check what is running.
+              The VisionSwap team manages the pool's settings: the pool fee (never above 1%), the deposit limits and pool cap, the waiting
+              room, the screening key, the fee wallet and a pause for new deposits. Changes take effect when they are made. A change of pool
+              fee can hold up payments already proved under the old fee until the sender's app proves them again.
+            </li>
+            <li>
+              The program can be upgraded by the VisionSwap team so it can keep improving, and an upgrade can change its rules. The live
+              code's fingerprint and the upgrade key's address are below, so anyone can see when it changes.
             </li>
             <li>
               Orders are the one place our service holds a key over your funds, and only as far as you choose: an order's key can move
-              only the amount you set aside for it, only from its own Vision wallet, and only until it ends or you cancel it.
+              only the amount you set aside for it (for a DCA, its whole budget), only from its own Vision wallet, and only until it ends
+              or you cancel it.
+            </li>
+            <li>
+              Your keys are made by the app's code, which your browser loads from visionswap.net each time you open it, so that code is
+              part of what you trust. The Chrome extension carries its own copy of the app, published through the Chrome Web Store.
             </li>
             <li>
               The code has been tested extensively but has <strong>not yet had an independent audit</strong>. Treat it as new software.
             </li>
             <li>
-              The proving keys come from a two-phase trusted setup: phase one is the Privacy &amp; Scaling Explorations "perpetual powers
-              of tau" with 80 public contributions; phase two added three independent contributions and a final random beacon taken from
-              Bitcoin block 969,748. The full transcript ships with the source.
+              The proving keys come from a two-phase trusted setup that builds on the public Privacy &amp; Scaling Explorations
+              "perpetual powers of tau" (61 public contributions and a random beacon). Phase two was completed by the VisionSwap team and
+              sealed with a final random beacon from Bitcoin block 969,748. Its record, every contribution's hash and the beacon, is part
+              of the public proving key the app downloads. As with any trusted setup, the proofs are sound as long as
+              the randomness used in phase two was discarded; your payments' privacy doesn't depend on it.
             </li>
             <li>
-              Your browser downloads every note in the pool, and the whole waiting room, and finds its own entries locally, so the server
-              never learns which notes or deposits are yours. The site loads nothing from third parties, and a strict content security
-              policy lets the page run only its own code: chain data, prices and token icons all come through VisionSwap's server, which
-              keeps no logs of IP or wallet addresses. Like any website, though, the server sees the connections it receives, including the
-              payments you ask it to relay and the orders you place. For the strongest privacy, use a VPN or Tor, and shield and spend in
-              different sittings.
+              Your browser downloads every note in the pool, and the whole waiting room, and finds its own entries locally, so finding your
+              notes never tells the server which are yours. Other requests do carry your addresses: screening a deposit names the wallet
+              making it, the app reads your own addresses' balances through our server, and a payment you ask the relayer to send names its
+              recipient. The site loads nothing from third parties, and a strict content security policy lets the page run only its own
+              code: chain data, prices and token icons all come through VisionSwap's server, which writes no IP or wallet addresses to its
+              logs. Like any website, though, the server sees the connections it receives, including the payments you ask it to relay and
+              the orders you place; the <a href="/privacy">Privacy policy</a> lists what each service sees and how long anything is kept.
+              For the strongest privacy, use a VPN or Tor, and shield and spend in different sittings. VPNs and Tor are for privacy, never for
+              getting around the places where VisionSwap isn't offered (<a href="/terms#eligibility">Terms of use, section 2</a>).
             </li>
           </ul>
+          <p>
+            The <a href="/security">Security</a> page covers all of this in one place, with how to report a security problem.
+          </p>
 
           <h2 id="onchain">Check it on-chain</h2>
           <p>
@@ -752,12 +853,13 @@ export default function DocsPage() {
                 <>
                   {info.program.upgradeAuthority ? (
                     <Proof label="Upgrade key" address={info.program.upgradeAuthority} network={info.network}>
-                      Can upgrade the program while it is young (see Security and trust). It moves to a multisig, then goes away for good.
+                      Can upgrade the program while it is young (see Security and trust). The plan is to move it to a multisig, then
+                      remove it for good.
                     </Proof>
                   ) : (
                     <div>
                       <dt>Upgrade key</dt>
-                      <dd>None. The program is permanent and can never be changed.</dd>
+                      <dd>None. The program's code is permanent and can never be changed (the admin settings in Security and trust remain).</dd>
                     </div>
                   )}
                   <div>
@@ -767,8 +869,9 @@ export default function DocsPage() {
                       <span>
                         Last deployed at slot {info.program.deployedSlot.toLocaleString("en-US")}. To check it with the standard{" "}
                         <code>solana-verify</code> tool, run <code>solana-verify get-program-hash {info.programId}</code>: it prints this
-                        fingerprint. Building the open-source code with the toolchain it lists and running{" "}
-                        <code>solana-verify get-executable-hash vision_pool.so</code> prints the same one.
+                        fingerprint, so anyone can see whether the code has changed. Running{" "}
+                        <code>solana-verify get-executable-hash vision_pool.so</code> on a build of the program prints its fingerprint
+                        to compare.
                       </span>
                     </dd>
                   </div>
@@ -782,16 +885,25 @@ export default function DocsPage() {
           <h2 id="compliance">Screening and the waiting room</h2>
           <p>
             VisionSwap is built for people protecting ordinary money. Before a deposit, the guard checks the depositing wallet, and the
-            wallets that recently paid SOL into it, against OFAC's sanctions list (and, when enabled, a commercial risk feed), then signs a
-            short-lived pass that the program requires. Deposits then wait in a public waiting room. If a deposit is flagged during that
-            time, the guard can send it back, and only to the wallet it came from. Depositors can also take a deposit back themselves at
+            wallets that recently paid SOL into it, against the U.S. sanctions list (read from OFAC's own published list) and the addresses
+            we refuse, then signs a short-lived pass that the program requires. Screening looks a short way back into a wallet's history, so it is a careful
+            filter rather than proof of where every coin came from. Deposits then wait in a public waiting room. If a deposit is flagged
+            during that time, the guard can send it back, and only to the wallet it came from. Depositors can also take a deposit back themselves at
             any time before it joins the pool. A deposit address that put everything into its deposit can sign the request instead, and
             the guard pays the network fee; the program still pays back only to the depositor. Recipients of private sends are checked
-            against the same list, and VisionSwap's relayer won't pay a sanctioned address.
+            against the same list, and VisionSwap's relayer won't pay a sanctioned address. In the app, Send all from a Vision wallet or a
+            deposit address checks the recipient first, and transfers sent through VisionSwap's server are checked against the list;
+            software other than VisionSwap's can skip those checks.
           </p>
           <p>
-            You can download a statement of your notes and activity from the app, with or without your viewing key, to show an exchange
-            or an accountant where your money came from. VisionSwap is not offered to people or places under sanctions.
+            You can download a statement of your notes from the app: whoever you give it to can check that each note exists on-chain and,
+            for notes that came straight from a deposit, which wallet made it; it doesn't prove which notes are still unspent. Including your
+            viewing key lets the holder see every note you've received, before and after, and can't be taken back. To show an exchange that
+            an address is yours, the app signs the exchange's message with it, and the exchange can check it on the{" "}
+            <a href="/verify">Check an ownership proof</a> page. VisionSwap is not offered to people on sanctions lists or in restricted
+            places (<a href="/terms#eligibility">Terms of use, section 2</a>); while region checks are on, our server also refuses
+            connections from those places. The <a href="/compliance">Compliance</a> page shows whether they are, and explains what is
+            checked, our screening policy, what happens to flagged deposits and what data exists.
           </p>
 
           <h2 id="faq">Questions</h2>
@@ -803,6 +915,11 @@ export default function DocsPage() {
               </details>
             ))}
           </div>
+          <p>
+            More answers, from fees to checking the program yourself, are in the <a href="/faq">FAQ</a> and the{" "}
+            <a href="/support">Support library</a>. For anything else, email <a href={mailto(SUPPORT_EMAIL)}>{SUPPORT_EMAIL}</a>;
+            business, partnership and press enquiries go to <a href={mailto(BUSINESS_EMAIL)}>{BUSINESS_EMAIL}</a>.
+          </p>
 
           <h2 id="developers">For developers</h2>
           <ul>
@@ -821,7 +938,7 @@ export default function DocsPage() {
             </li>
             <li>
               The pool's full history can be rebuilt from the chain alone, from the program's events. The SDK includes that path, so the
-              app does not depend on any one server.
+              pool's data does not depend on any one server.
             </li>
           </ul>
         </article>

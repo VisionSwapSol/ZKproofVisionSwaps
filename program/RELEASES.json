@@ -1,0 +1,36 @@
+{
+  "about": "Every vision_pool build deployed on mainnet, or recorded as a candidate to deploy. sha256 is the .so file; executableHash is the same bytes without trailing zeros, which `solana-verify get-program-hash` prints for the deployed program. program/BUILD.md explains how to rebuild and check an entry.",
+  "releases": [
+    {
+      "version": "1.0.0",
+      "status": "deployed",
+      "cluster": "mainnet-beta",
+      "programId": "VSwJY1r9S7nNUyvBzWYr1rBkEMyTAjDFGtixxLGpmt6",
+      "sha256": "2e6fb1f233a13436781ac43aa2ab10e283ab80b64b93389a19948d766b3739f4",
+      "executableHash": "7edb58080a4d73584cb70d0a46e041765a0052ce81fed3885fd7935006fd177d",
+      "size": 391696,
+      "sbpfArch": "v0",
+      "source": {
+        "commit": "3c2a7d977b5908768b02d37c10d46a334e1d55c8",
+        "programTree": "e3113fd9c8e0ac7616283d4f9a2d511d1f336f26",
+        "cargoLockSha256": "d74694e1aefcd92c720af93085ea57218dafdff3aab3255cdda73de45093cd4c",
+        "sourceSha256": "fdbb49257eeee076435ac0d7ed216353f4153e51475cfe97e45095550ff195dc"
+      },
+      "toolchain": {
+        "cargoBuildSbf": "3.1.13",
+        "platformTools": "v1.52",
+        "rustc": "1.89.0-dev"
+      },
+      "stackOffsetDiagnostics": {
+        "total": 16,
+        "linked": 0
+      },
+      "deployedSlot": 453075865,
+      "deployedAt": "2026-10-03T23:03:58Z",
+      "reproduced": "2026-10-14: program/scripts/build.sh, offline and with no keys in the build folder, built these exact bytes from the program sources at source.commit with program/Cargo.lock; the on-chain program data holds exactly these bytes followed by zero padding.",
+      "verifiedBuild": null,
+      "audited": false,
+      "notes": "The program sources in this repository rebuild these exact bytes with program/Cargo.lock. sourceSha256 covers Cargo.toml, Cargo.lock and programs/ as build.sh hashes them at source.commit."
+    }
+  ]
+}

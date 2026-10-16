@@ -32,7 +32,7 @@ export function PoolDiagram() {
         <title id="pool-title">How a shielded payment travels</title>
         <desc id="pool-desc">
           SOL leaves your wallet and becomes one of many identical notes in the pool. A payment later leaves the pool
-          to any address or to a new Vision wallet, and nothing ties it to the note that came in.
+          to any address or to a new Vision wallet, and the proof never says which note paid for it.
         </desc>
         <defs>
           <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">

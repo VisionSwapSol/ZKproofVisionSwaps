@@ -1,9 +1,14 @@
 import { useEffect, useRef } from "react";
 import { Icon } from "../Icon";
 import { fmt } from "../../lib/engine";
+import { IS_EXTENSION } from "../../lib/platform";
+import { useCloseRequest } from "../../lib/closereq";
+import { useFocusTrap } from "./Sheet";
 
 /** What a form says when its amount is more than an empty private balance. */
-export const EMPTY_WARN = "Your private balance is empty. Shield SOL first (the Shield tab at the top), then come back.";
+export const EMPTY_WARN = IS_EXTENSION
+  ? "Your private balance is empty. Add SOL first (Receive, on the home screen), then come back."
+  : "Your private balance is empty. Shield SOL first (the Shield tab at the top), then come back.";
 
 /**
  * Buys spend the private balance, never the connected wallet's SOL (sends can come straight from
@@ -24,9 +29,14 @@ export function ShieldFirst({
   onClose: () => void;
 }) {
   const go = useRef<HTMLButtonElement>(null);
+  // Tab stays in the pop-up while it's open
+  const box = useRef<HTMLDivElement>(null);
+  useFocusTrap(box);
   // the page re-renders often (balance, prices): focus is set once, when it opens
   const close = useRef(onClose);
   close.current = onClose;
+  // Back (in the Android app) closes this pop-up, not the app
+  useCloseRequest(true, () => close.current());
   useEffect(() => {
     go.current?.focus();
     const key = (e: KeyboardEvent) => e.key === "Escape" && close.current();
@@ -35,7 +45,7 @@ export function ShieldFirst({
   }, []);
   return (
     <div className="sf-back" onClick={onClose}>
-      <div className="sf" role="dialog" aria-modal="true" aria-labelledby="sf-title" onClick={(e) => e.stopPropagation()}>
+      <div ref={box} className="sf" role="dialog" aria-modal="true" aria-labelledby="sf-title" onClick={(e) => e.stopPropagation()}>
         <span className="sf-ico">
           <Icon name="shield" size={26} />
         </span>

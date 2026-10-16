@@ -12,8 +12,7 @@ export function CodeBand() {
       <div className="wrap band-in">
         <p className="band-big rise">Stay unseen.</p>
         <p className="band-sub rise">
-          The lines behind this sentence are the circuit that checks every withdrawal. It's open, like the rest of
-          VisionSwap.
+          The lines behind this sentence are from the circuit that checks every withdrawal.
         </p>
       </div>
     </section>

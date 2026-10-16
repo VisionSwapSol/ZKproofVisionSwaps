@@ -74,8 +74,11 @@ export function maxDepositFor(budget: bigint, feeBps: number): bigint {
  * How to move `balance` lamports from one address into the pool in as few
  * deposits as the per-deposit limit allows. Each deposit costs its amount, its
  * fee, the waiting-room rent and the network fee; the last one also carries
- * the rounding dust, so the address ends at exactly zero. Returns the amounts,
- * or [] when not even one smallest deposit fits.
+ * the rounding dust, so the deposits leave the address at zero. The rent of each
+ * deposit's waiting-room account comes back to the address when it settles (or
+ * is refunded), so the address then holds that much again: it stays there, and
+ * goes into the pool with the address's next deposit. Returns the amounts, or []
+ * when not even one smallest deposit fits.
  */
 export function depositParts(
   balance: bigint,

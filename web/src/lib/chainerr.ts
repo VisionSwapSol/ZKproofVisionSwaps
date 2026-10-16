@@ -49,11 +49,40 @@ export function failedProgram(text: string): { program: string; code: string | n
   return m ? { program: m[1], code: m[2]?.toLowerCase() ?? null } : null;
 }
 
+/** What a transaction refused for the region says (the server's own words when it sends them). */
+export const REGION_REFUSED = "VisionSwap isn't available in your region. Nothing was sent.";
+
+/**
+ * A transaction VisionSwap's chain gateway (/api/rpc) refused itself, before sending it on: the
+ * gateway answers HTTP 403 (a recipient that can't receive from VisionSwap, a deposit that can't be
+ * added to the pool yet, a call it doesn't allow) or 451 (not available in this region), which the
+ * Solana library reports as "403 Forbidden: {...}". Returns the gateway's message, or null for any
+ * other error. Such a transaction never reached the network.
+ */
+export function gatewayRefusal(e: unknown): string | null {
+  const m = (e as { message?: unknown })?.message;
+  if (typeof m !== "string") return null;
+  const g = /^(403|451)\b[^:{]*:\s*([\s\S]*)$/.exec(m.trim());
+  if (!g) return null;
+  let said: string | null = null;
+  try {
+    const j = JSON.parse(g[2].trim()) as { error?: unknown };
+    const er = j?.error;
+    said = typeof er === "string" ? er : er && typeof er === "object" && typeof (er as { message?: unknown }).message === "string" ? (er as { message: string }).message : null;
+  } catch {
+    said = null;
+  }
+  if (said && said.length <= 300 && !/[<>]/.test(said)) return said;
+  return g[1] === "451" ? REGION_REFUSED : "The network gateway refused this transaction. Nothing was sent.";
+}
+
 export function chainError(e: unknown): Error {
   const err = e as { message?: string; logs?: string[] };
   const text = `${err?.message ?? ""} ${(err?.logs ?? []).join(" ")}`;
   // the original logs stay on the error, so later checks can still read them
   const out = (msg: string) => Object.assign(new Error(msg), { logs: err?.logs ?? [] });
+  const refused = gatewayRefusal(e);
+  if (refused) return out(refused);
   const failed = failedProgram(text);
   const tokenFailed = !!failed && TOKEN_PROGRAMS.includes(failed.program);
   if (text.includes(JUPITER)) {
@@ -75,6 +104,11 @@ export function chainError(e: unknown): Error {
     if (/insufficient funds|error: 0x1(?![0-9a-f])/i.test(text)) return out("This wallet doesn't hold enough of that token for this.");
     return out(`The token program refused this transaction${failed!.code ? ` (${failed!.code})` : ""}. Nothing was sent.`);
   }
+  // a deposit's waiting-room account is named by its note: someone who saw the note on its way can deposit with it first
+  // (only a deposit: a payment whose note was already spent fails with the same words, about another account)
+  if (/already in use/i.test(text) && /Instruction: Deposit\b/.test(text) && (poolProgram == null || text.includes(poolProgram))) {
+    return out("Another deposit took this one's place in the waiting room first. Nothing was sent. Please try again: the next try uses a new place.");
+  }
   // the pool's own errors: only when the pool (or nothing more specific) failed; before the pool's id is
   // known, any program outside a swap is taken to be the pool (the app's other transactions call nothing else)
   if (!failed || poolProgram == null || failed.program === poolProgram) {
@@ -86,4 +120,20 @@ export function chainError(e: unknown): Error {
     return out(`The network refused this transaction${code ? ` (${code})` : ""}. Nothing was sent.`);
   }
   return e instanceof Error ? e : new Error(String(e));
+}
+
+/** True when the network certainly refused the transaction before it could run (it was never sent on). */
+export function refusedForSure(e: unknown): boolean {
+  const err = e as { message?: string; logs?: string[] };
+  const m = err?.message ?? "";
+  // "Blockhash not found" in the preflight often means only that the node that answered is a few slots
+  // behind the one that gave out the blockhash: the transaction can still land, so it goes on to be
+  // sent and followed until it lands or its blockhash certainly expires
+  if (/blockhash not found|BlockhashNotFound/i.test(m)) return false;
+  // VisionSwap's gateway refused it itself: it was never sent on
+  if (gatewayRefusal(e) !== null) return true;
+  return (
+    (Array.isArray(err?.logs) && err.logs.length > 0) ||
+    /simulation failed|custom program error|insufficient (funds|lamports)|no record of a prior credit|invalid (account|transaction)|signature verification/i.test(m)
+  );
 }

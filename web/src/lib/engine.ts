@@ -56,20 +56,71 @@ import {
   type Keys,
   type OwnedNote,
   paysTo,
+  drawRootLag,
+  heldRootSize,
+  isMature,
+  padInputs,
+  nonceKey,
+  poolProblems,
+  decodeJupiterRoute,
+  checkJupiterRoute,
+  MAX_RELAYER_FEE,
+  MAX_SWAP_FEE_BPS,
+  buildReceipt,
+  readAddrList,
+  listScan,
+  ADDR_DEPOSITED,
+  ADDR_PAID,
+  ADDR_PAYER,
+  ADDR_REC,
+  shapeJson,
+  openSealed,
+  fromBase64,
+  assessRoute,
+  driftPct,
+  driftStop,
+  feeInForce,
+  needs,
+  taxRises,
+  turnFloor,
+  worse,
+  DRIFT_DEFAULT_BPS,
+  type FeeRule,
+  type JupiterRoute,
+  type TradeCheck,
+  type BoardAnswer,
+  type DeliveryShape,
+  type OwnNote,
+  type Receipt,
 } from "@visionswap/sdk";
 import bs58 from "bs58";
-import { api, apiBinary, conn, formatUnits, sendAndConfirm, confirmSig, signatureOf, signatureState, setPoolProgram, ApiError, StillPending } from "./net";
+import { api, apiBinary, conn, formatUnits, sendAndConfirm, confirmSig, signatureOf, signatureState, setPoolProgram, ApiError, StillPending, type Expiry } from "./net";
 import { PRICE_MOVED } from "./chainerr";
-import { checkSwapSpend, lastPart, leftOver, maxWithdraw, mergePlan, roomFor, settlePayer, speedEstimate, speedOf, sweepAmount, sweepParts, MAX_MERGES, type MergePlan, type Speed } from "./trade";
+import { autoSlippage, checkSwapSpend, isDust, lastPart, leftOver, maxWithdraw, mergePlan, roomFor, settlePayer, speedEstimate, speedOf, sweepAmount, sweepParts, MAX_MERGES, SPEED_CAP, type MergePlan, type Speed } from "./trade";
+import { acceptHold, checkSay, driftText, loadGuard, saveGuard, type GuardSaved, type Hold, type TradeGuard } from "./guard";
 import { call, zkFiles } from "./zk";
 import { idbGet, idbSet, idbDel, ls } from "./idb";
 import { accountTag, deviceKey, dropDeviceKey, historyKeys, holdsFunds, isSealed, sealWith, unsealWith } from "./device";
-import { nextStep, payOpen, payoutFor, walletDeposit, PAY_KEEP_MS, type PayStatus, type PayStep, type PayView, type WalletPay } from "./walletpay";
-import { MAX_KEYS, chunk, sleep, randInt, shuffle, range, paced, gapScan, syncDelay, Rotation, planMoves, afterMove, dueMove, leavesHold, type MovePlan } from "./poll";
+import { holdsItsNote, maxChange, nextStep, payOpen, payoutFor, refundIsOurs, walletDeposit, walletMost, PAY_KEEP_MS, type PayStatus, type PayStep, type PayView, type WalletPay } from "./walletpay";
+import { IS_EXTENSION, siteOrigin } from "./platform";
+import { requireTerms } from "./terms";
+import { LISTED_RECIPIENT, screenList } from "./screenlist";
+import { ownershipMessage, proofFrom, signOwnership, type OwnershipProof } from "./ownership";
+import { buildStatement } from "./statement";
+import "./features"; // (declares the build-time switch __VS_RECEIPTS__)
+import { downloadTxIndex, historyFrom } from "./receipts";
+import { API } from "./config";
+import { officialServer } from "./official";
+import { SlotClock, bestMsPerSlot, msPerSlotFromSamples, saveMsPerSlot, slotMinutes } from "./slottime";
+import { MAX_KEYS, chunk, sleep, randInt, secureRandom, shuffle, range, paced, gapScan, syncDelay, Rotation, planMoves, afterMove, dueMove, leavesHold, type MovePlan } from "./poll";
 import { inTime, keySlots, leftOf, mergeReply, pickKeyN, replyChanged, scaleLegs, sellClash, shrinkLegs, stepsKept, tokenDelegate, type OrderReply } from "./orders";
 import { ownPaidText, walletName } from "./vwallets";
-import { afterFailure, batchFinished, gapMs, nextWaiting, onLoad, resolveRunning, retryFailed, setItem, stopRest, BATCH_MAX, BATCH_MIN, BUSY_GAP, type Batch, type Facts } from "./batch";
-import { isLive, isOpen, goneOut, finishDue, cancelledMeanwhile, patchJob, mergeReplies, pollGroups, needsProof, backoff, splitSummary, spentVerdict, definite, prepPlan, prepStep, prepRounds, type JobReply, type JobStatus, type PartOutcome } from "./jobs";
+import { avoidLoneSwept, drawExtraReserve, mergeOwnDeposits, nearAmount, nearDeposit, poolShareBps, shieldedValue, sweptLeaves, withDecoys, type DepositSource, type OwnDeposit } from "./privacy";
+import { drawDeliveryShape, drawOwnShape, foldDust, jitterComputeLimit, ownPriorityMax, priorityOf, type OwnShape } from "./txshape";
+import { DROPPED_TEXT, droppedFor, noteDropped, pruneDropped, type DroppedProof } from "./dropped";
+import { askBoard, noBoard, type BoardMemo } from "./statusboard";
+import { afterFailure, batchFinished, continueHeld, gapMs, holdBatch, itemName, nextWaiting, onLoad, resolveRunning, retryFailed, setItem, stopRest, turnGuard, BATCH_MAX, BATCH_MIN, BUSY_GAP, type Batch, type BatchItem, type Facts } from "./batch";
+import { isLive, isOpen, goneOut, finishDue, cancelledMeanwhile, patchJob, mergeReplies, pollGroups, needsProof, drawGoAt, goAtOf, PREP_GAP_MS, backoff, splitSummary, spentVerdict, definite, prepPlan, prepStep, prepRounds, rootGone, ROOT_MOVED_NOTE, holdPayingRead, payingLands, PAYING_MS, type JobReply, type JobStatus, type PartOutcome, type Paying } from "./jobs";
 import {
   APP_VERSION,
   newerVersion,
@@ -87,6 +138,9 @@ import {
   poisoned,
   OFF_CURVE_TEXT,
   readLegs,
+  feeOfShape,
+  shapeOf,
+  type ShapeJson,
   HELD_MARK_MS,
   hasDeliveryLine,
   fillDeliveryLine,
@@ -134,6 +188,8 @@ export type PoolInfo = {
   /** how much more the pool can take right now, or null when there is no cap */
   tvlRoom?: string | null;
   depositDelaySlots: string;
+  /** the network's measured slot time, in ms (older servers leave it out: the app measures it itself, see slottime.ts) */
+  msPerSlot?: number;
   depositsPaused: boolean;
   requireAttestation: boolean;
   treasury: string;
@@ -142,6 +198,8 @@ export type PoolInfo = {
   relayerFee: string;
   /** what a payment's own fee payer spends (older servers leave it out) */
   selfRelayCost?: string;
+  /** the relayer's price per compute unit, in micro-lamports (older servers leave it out) */
+  priorityMicroLamports?: number;
   /** the "send later" windows this server offers */
   sendLater?: string[];
   /** how payments to outside addresses are delivered (see sdk/src/delivery.ts); the app sends none when it differs from its own */
@@ -242,7 +300,7 @@ export type Ask = { kind: "off-curve" | "lookalike"; address: string; similar?: 
  *  - "fee": nothing for anyone but the fee payer itself (cutting and joining notes).
  */
 type Dest =
-  | { kind: "pay"; to: PublicKey; amount: bigint; mode: "instant" | "scheduled" | "self"; offCurveOk?: boolean; only?: "l1" | "n2" }
+  | { kind: "pay"; to: PublicKey; amount: bigint; mode: "instant" | "scheduled" | "self"; offCurveOk?: boolean; only?: "l1" | "n2"; shape?: DeliveryShape }
   | { kind: "own"; kp: Keypair }
   | { kind: "fee" };
 type PayDest = Extract<Dest, { kind: "pay" }>;
@@ -252,7 +310,7 @@ type PayDest = Extract<Dest, { kind: "pay" }>;
  * spend's, which isn't the transfer the recipient sees); `hop` is its sending address.
  */
 type Paid = { sig: string; tx1: string; hop?: string };
-/** A spend as the relayer takes it (server/src/relayer.ts, RelayRequest). */
+/** A spend as the relayer takes it (its RelayRequest). */
 type RelayRequestBody = {
   proof: string;
   root: string;
@@ -269,7 +327,9 @@ type RelayRequestBody = {
 type RelayAnswer = { signature: string; pending?: boolean; delivery?: { status: "delivered" | "pending" | "waiting"; signature: string | null; hop: string } };
 /** What a payment to an outside address is signed on (POST /api/relay/prepare). */
 type Prepared = { blockhash?: string; lastValidBlockHeight?: number; leaseId?: string; nonce?: NonceLease; delivery: DeliveryInfo };
-const UPDATE_TEXT = "VisionSwap has been updated. Refresh the page to send. Nothing was spent.";
+const UPDATE_TEXT = IS_EXTENSION
+  ? "VisionSwap has been updated. The extension updates itself shortly; until then, send from visionswap.net. Nothing was spent."
+  : "VisionSwap has been updated. Refresh the page to send. Nothing was spent.";
 /** Asks the sender to confirm a recipient before anything is sent (shown by the form, never as an error). */
 class NeedsConfirm extends Error {
   constructor(readonly ask: Ask) {
@@ -317,13 +377,28 @@ export type Job = {
   offCurveOk?: boolean;
   tx1?: string;
   delivering?: number;
+  /**
+   * Its notes were too new for a proof held for later when it was scheduled: kept here (status "stale")
+   * and proved and handed over once the pool has moved on, or sent at once when its moment `goAt`
+   * comes, while the app is open (see ripenJob).
+   */
+  ripening?: boolean;
+  /** a payment kept here for its notes: the random moment within its window when it goes at the latest (see drawGoAt) */
+  goAt?: number;
   /** a payment to a wallet of this account's own: that wallet's signature over the proof's notes (see ownMessage) */
   own?: string;
+  /** a payment to an outside address: the shape its delivery is signed in (VS-34; none: the fixed one), kept for its fresh proofs */
+  shape?: ShapeJson;
 };
 /** A cancel the relayer couldn't confirm yet, of a payment made in the last few minutes: it may still be arriving there, so its notes stay held and the app keeps asking. */
 const unconfirmedCancel = (j: Job) => !!j.cancelPending && Date.now() - j.created < 10 * 60_000;
-/** This account's fee wallets as this device knows them (see gasState); `bal` is what each held when last read. */
-type GasState = { next: number; used: number[]; seen?: number[]; scanned?: boolean; bal?: Record<number, { l: string; t: number }> };
+/**
+ * This account's fee wallets as this device knows them (see gasState); `bal` is what each held when last read.
+ * `joined`: those among `used` that so far sent only joins here, for a payment that then didn't go (see sendSelf).
+ */
+type GasState = { next: number; used: number[]; joined?: number[]; seen?: number[]; scanned?: boolean; bal?: Record<number, { l: string; t: number }> };
+/** The fee wallets that sent a payment (or anything this device can't account for): never offered for another one. */
+const paidGas = (st: GasState) => st.used.filter((i) => !(st.joined ?? []).includes(i));
 /** A payment request: a link anyone can pay, landing on its own deposit address and moving into the private balance. */
 export type PayRequest = {
   index: number;
@@ -440,15 +515,29 @@ export type OrderPatch = {
 /** The guard's short-lived "this depositor passed screening" pass. */
 type Attestation = { guard: string; expiry: string; signature: string };
 
-/** Who submits a payment when the relayer can't: a Vision wallet, or one of this account's fee wallets. */
-export type SelfPayer = { kind: "vision"; index: number } | { kind: "gas"; index: number };
+/**
+ * Who submits a payment the person sends themselves: always one of this account's fee wallets. A
+ * Vision wallet is never offered (its trades would then be tied to the payment on the chain).
+ */
+export type SelfPayer = { kind: "gas"; index: number };
 
 /**
  * What is running. `bg` marks work the app started by itself (a paid link's SOL moving in, a filled
  * order's SOL coming home): it holds the same lock, so nothing interleaves with it, but the page
  * shows it as a small status line instead of covering the form.
+ * `tap` names a button the card shows instead of the spinner: the step waits for the person to
+ * press it (engine.tapBusy), or to cancel (engine.cancelTap). `cancel` adds a Cancel link under the
+ * spinner, for a wait on the wallet that the wallet may never end (engine.cancelTap ends it).
  */
-export type Busy = { kind: Activity["kind"] | "unlock" | "sync"; step: string; detail?: string; bg?: boolean; spot?: string } | null;
+export type Busy = {
+  kind: Activity["kind"] | "unlock" | "sync";
+  step: string;
+  detail?: string;
+  bg?: boolean;
+  spot?: string;
+  tap?: string;
+  cancel?: boolean;
+} | null;
 
 /** What just finished, in plain words, with the transaction to look up if wanted; `wallets` adds a way to the Wallets tab. */
 export type Notice = { title: string; text: string; sig?: string; wallets?: boolean } | null;
@@ -483,6 +572,8 @@ export type State = {
   balance: bigint;
   waiting: Waiting[];
   slot: number;
+  /** how long a slot takes, as measured (see slottime.ts): every "about N minutes" is worked out from it */
+  msPerSlot: number;
   publicLamports: bigint | null;
   vision: VisionView[];
   activity: Activity[];
@@ -502,6 +593,8 @@ export type State = {
   arriving: bigint;
   /** the part of `locked` held by scheduled payments made on another device */
   aside: bigint;
+  /** notes that repeat an earlier note's details (someone deposited them again): never used by the app, not in `balance` */
+  unexpected: bigint;
   /** the scheduled payment getting a fresh proof in the background, if any */
   refreshingJob: string | null;
   /** scheduled payments being cancelled right now (cancelling never waits for anything else) */
@@ -534,6 +627,9 @@ export type WalletLike = {
 };
 
 const LEAF_REC = 60;
+/** The chunk boundaries a page's first sync starts from (see coarsen): every visitor's copy passes through them. */
+const LEAF_CHUNK = 1024;
+const NF_CHUNK = 2048;
 const WSOL = "So11111111111111111111111111111111111111112";
 const TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 const TOKEN_2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
@@ -550,12 +646,14 @@ export const VISION_RESERVE_2022 = 10_000_000n;
 export const visionReserve = (program?: string | null) => (program === TOKEN_2022_ID ? VISION_RESERVE_2022 : VISION_RESERVE);
 /**
  * A modest priority fee on the app's own deposits, sweeps, clean-ups and approvals, so a busy
- * network doesn't leave them waiting. Every fee figure that depends on it counts it.
+ * network doesn't leave them waiting. Each transaction draws its compute limit and price within a
+ * band (see txshape.ts, VS-34), so they don't all carry the same figures; a fee figure worked out
+ * before one is built counts the band's most, and one that must come out exact (an address ending at
+ * zero) is worked out from the shape the transaction then uses.
  */
-const OWN_PRICE = 10_000; // micro-lamports per compute unit
-const DEPOSIT_CU = 120_000;
-const SWEEP_CU = 200_000;
-const ownPriority = (units: number) => BigInt(Math.ceil((units * OWN_PRICE) / 1_000_000));
+const SIG_FEE = 5_000n;
+/** The compute budget instructions of a drawn shape. */
+const budgetOf = (s: OwnShape) => computeBudget(s.cu, s.price);
 /** The most a fee top-up may add to a Vision wallet: fees and temporary accounts, never a trade's own SOL. */
 export const TOPUP_MAX = 50_000_000n;
 const TOKEN_2022_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
@@ -590,10 +688,12 @@ class Engine {
     locked: 0n,
     arriving: 0n,
     aside: 0n,
+    unexpected: 0n,
     refreshingJob: null,
     cancellingJobs: [],
     waiting: [],
     slot: 0,
+    msPerSlot: bestMsPerSlot(null, null),
     publicLamports: null,
     vision: [],
     activity: [],
@@ -612,6 +712,8 @@ class Engine {
     batchAway: false,
   };
   private subs = new Set<() => void>();
+  /** the busy card's button (Busy.tap): pressed, or cancelled */
+  private tapWait: { go: () => void; stop: (e: Error) => void } | null = null;
   private keys: Keys | null = null;
   private poolObj: Pool | null = null;
   private leafBytes: Uint8Array = new Uint8Array(0);
@@ -632,6 +734,10 @@ class Engine {
   private owned = new Map<number, OwnedNote>();
   /** every leaf this account owns (any amount, spent or not), by index: each spend's change note names its sending address */
   private ownLeaves = new Map<number, bigint>();
+  /** the first leaf each of this account's note nonces was seen at: a later note with the same nonce repeats an earlier deposit's public details */
+  private nonceAt = new Map<string, number>();
+  /** such repeats (by leaf index): never picked by the app, nor counted in the balance */
+  private unexpected = new Map<number, OwnedNote>();
   /** sending addresses worked out from those leaves so far (leaf → address) */
   private hopOf = new Map<bigint, string>();
   /** when deliveries on this device were last looked at, and when the relayer's list of open sending addresses was */
@@ -698,18 +804,57 @@ class Engine {
   async loadPool(): Promise<PoolInfo | null> {
     try {
       const pool = await api<PoolInfo>("/api/pool/info");
+      // the app's own pins, not the server's word: another program on mainnet (or accounts that aren't its
+      // own) is never used at all; fees above the ceilings stop proofs, and a swap fee above its own stops swaps (see poolGate)
+      const bad = poolProblems(pool, { official: OFFICIAL });
+      if (bad.refuse.length) {
+        this.poolObj = null;
+        this.set({ pool: null, poolError: POOL_MISMATCH });
+        return null;
+      }
+      this.poolFees = bad.fees;
+      this.swapFees = bad.swap;
+      if (this.poolObj?.programId.toBase58() !== pool.programId) this.chainChecked = null;
       this.poolObj = new Pool(pool.programId);
       setPoolProgram(pool.programId);
       this.poolAt = Date.now();
       // a server that delivers payments differently from this page (a newer release): it waits for a refresh
       const d = pool.delivery;
       const update = !!d && (newerVersion(d.minClient, APP_VERSION) || !sameDeliveryTerms(d));
-      this.set({ pool, poolError: null, update: this.s.update || update });
+      this.set({ pool, poolError: null, update: this.s.update || update, msPerSlot: bestMsPerSlot(pool.msPerSlot, this.sampledMs) });
       if (!this.s.rent) void this.loadRent();
+      void this.measureSlots();
       return pool;
     } catch (e) {
       this.set({ poolError: (e as Error).message });
       return null;
+    }
+  }
+
+  /**
+   * Has the connected wallet sign what `build` makes on a fresh blockhash. A blockhash lasts only about
+   * half a minute now (150 blocks of about 200 ms), and an approval on a phone can take longer: when the
+   * one signed has run out (or nearly) by the time the wallet answers, nothing was sent, so it is built
+   * again on a fresh blockhash and the wallet asked once more. `asking(again)` runs before each ask.
+   * Returns the signed transaction and its exact expiry, for sendAndConfirm.
+   */
+  private async walletSigned<T extends Transaction>(
+    wallet: WalletLike,
+    build: (bh: { blockhash: string; lastValidBlockHeight: number }) => Promise<T> | T,
+    asking: (again: boolean) => void,
+  ): Promise<{ tx: T; expiry: Expiry }> {
+    for (let attempt = 0; ; attempt++) {
+      const r = await conn().getLatestBlockhashAndContext("confirmed");
+      const tx = await build(r.value);
+      asking(attempt > 0);
+      const signed = await wallet.signTransaction(tx);
+      const expiry: Expiry = { lastValidBlockHeight: r.value.lastValidBlockHeight, minContextSlot: r.context.slot };
+      if (attempt >= 1) return { tx: signed, expiry };
+      const height = await conn()
+        .getBlockHeight({ commitment: "confirmed", minContextSlot: r.context.slot })
+        .catch(() => null);
+      // a few blocks to spare for the send itself; when the height can't be read, it goes as it is
+      if (height == null || height + BLOCKHASH_SPARE < expiry.lastValidBlockHeight) return { tx: signed, expiry };
     }
   }
 
@@ -737,6 +882,49 @@ class Engine {
     return this.poolObj;
   }
 
+  /** What doesn't check out in the server's pool fees (see loadPool): nothing is proved while any does. */
+  private poolFees: string[] = [];
+  /** A swap fee above the app's ceiling (see loadPool): nothing is swapped while it is. */
+  private swapFees: string[] = [];
+  /** The pool's on-chain settings, as last checked against what the server said (see poolGate). */
+  private chainChecked: { at: number; ok: boolean } | null = null;
+
+  /**
+   * Before anything is proved (or swapped): the fees the server gave must be within the app's ceilings
+   * (for a swap, its swap fee), and its treasury, guard and pool fee must be the ones the program's own
+   * config account holds (see checkPoolOnChain). Throws when they aren't.
+   */
+  private poolGate(what: "prove" | "swap" = "prove") {
+    if ((what === "prove" ? this.poolFees : this.swapFees).length) throw new Error("The pool's fees are outside what this app accepts, so nothing was sent. Please try again later.");
+    if (this.chainChecked && !this.chainChecked.ok) throw new Error(POOL_MISMATCH);
+  }
+
+  /**
+   * Reads the program's config account and compares it with the server's description of the pool. A
+   * match holds for ten minutes; a mismatch is looked at again on every try. The server's description
+   * may be a moment behind a settings change, so on a mismatch it is read again once before it counts.
+   */
+  private async checkPoolOnChain(): Promise<void> {
+    if (this.chainChecked?.ok && Date.now() - this.chainChecked.at < 600_000) return;
+    for (let k = 0; k < 2; k++) {
+      const pool = this.s.pool;
+      if (!pool) return;
+      let ok: boolean;
+      try {
+        const a = await conn().getAccountInfo(this.pool().config, "confirmed");
+        if (!a) return;
+        const cfg = this.pool().decodeConfig(a.data);
+        ok = cfg.treasury.toBase58() === pool.treasury && cfg.guard.toBase58() === pool.guard && cfg.feeBps === pool.feeBps;
+      } catch {
+        // unknown: asked again before the next spend (the program refuses a wrong treasury, or a fee above the proof's, anyway)
+        return;
+      }
+      this.chainChecked = { at: Date.now(), ok };
+      if (ok || k > 0) return;
+      await this.loadPool();
+    }
+  }
+
   // ─── wallet & account ───
   setOwner(owner: string | null) {
     // a wallet switching or disconnecting mid-trade doesn't pull the account out from under it: the change waits for the step to end
@@ -754,6 +942,8 @@ class Engine {
 
   lock() {
     this.pendingLock = null;
+    // the next account's first sync starts from a chunk boundary too (see coarsen)
+    this.coarseNext = true;
     // a batch this tab was running lets go of it (another tab may then continue it)
     this.lease(false);
     this.keys = null;
@@ -788,6 +978,7 @@ class Engine {
       locked: 0n,
       arriving: 0n,
       aside: 0n,
+      unexpected: 0n,
       refreshingJob: null,
       cancellingJobs: [],
       waiting: [],
@@ -816,8 +1007,13 @@ class Engine {
     this.goAfter = false;
     this.spotRuns.clear();
     this.landedAt.clear();
+    this.moved.vision.clear();
+    this.moved.deposit.clear();
+    this.payingVision.clear();
     this.queued = [];
     this.ownLeaves.clear();
+    this.nonceAt.clear();
+    this.unexpected.clear();
     this.hopOf.clear();
     this.hopsAt = 0;
     this.hopScanAt = 0;
@@ -828,20 +1024,83 @@ class Engine {
     return !!ls.get<string | null>(`vs:fp:${owner}`, null);
   }
 
-  /** Signs the account message (twice the first time, to be sure the wallet signs deterministically). */
-  async unlock(wallet: WalletLike) {
+  /** Presses the busy card's button (see Busy.tap). */
+  tapBusy() {
+    const w = this.tapWait;
+    this.tapWait = null;
+    w?.go();
+  }
+
+  /** Cancels the step that waits for the busy card's button (or its Cancel link). */
+  cancelTap() {
+    const w = this.tapWait;
+    this.tapWait = null;
+    w?.stop(new Error("Signing was cancelled."));
+  }
+
+  /**
+   * The wallet's signature, or "Signing was cancelled." once the person presses Cancel. A phone with
+   * several wallet apps asks which one to open each time: picking a different one than the connected
+   * wallet can leave the request unanswered for good, and Cancel is the way out (a late answer is ignored).
+   */
+  private signOrCancel(wallet: WalletLike, msg: Uint8Array): Promise<Uint8Array> {
+    return new Promise<Uint8Array>((ok, no) => {
+      const mine = { go: () => {}, stop: no };
+      this.tapWait = mine;
+      wallet
+        .signMessage(msg)
+        .then(ok, no)
+        .finally(() => {
+          if (this.tapWait === mine) this.tapWait = null;
+        });
+    });
+  }
+
+  /**
+   * Signs the account message (twice the first time, to be sure the wallet signs deterministically).
+   * `tapBeforeSecond`: a wallet app on the phone (Mobile Wallet Adapter) can only be opened from a
+   * tap, so its second signature waits for one ("Sign again") instead of opening it by itself.
+   */
+  async unlock(wallet: WalletLike, opts: { tapBeforeSecond?: boolean } = {}) {
+    // no signature is asked for before the Terms in force are accepted on this device (lib/terms.ts)
+    try {
+      requireTerms();
+    } catch (e) {
+      this.set({ error: (e as Error).message });
+      return;
+    }
     const owner = wallet.publicKey.toBase58();
+    // a wallet on the U.S. sanctions list opens no account: checked in this browser against the published list
+    // (already downloaded: nothing is fetched here, so a phone's wallet app still opens straight from the tap)
+    if (screenList.listed(owner) === true) {
+      this.set({ error: "This wallet is on the U.S. sanctions list, so it can't open a VisionSwap account." });
+      return;
+    }
     this.set({ busy: { kind: "unlock", step: "Waiting for your wallet to sign" }, error: null });
     try {
       if (!this.poolObj && !(await this.loadPool())) throw new Error("The pool can't be reached right now. Try again in a moment.");
       const msg = new TextEncoder().encode(SIGN_MESSAGE);
-      const sig1 = await wallet.signMessage(msg);
+      this.set({ busy: { kind: "unlock", step: "Waiting for your wallet to sign", cancel: true } });
+      const sig1 = await this.signOrCancel(wallet, msg);
       const keys = keysFromSignature(sig1);
       const fp = keysFingerprint(keys);
       const known = ls.get<string | null>(`vs:fp:${owner}`, null);
       if (!known) {
-        this.set({ busy: { kind: "unlock", step: "One more signature to confirm it stays the same" } });
-        const sig2 = await wallet.signMessage(msg);
+        if (opts.tapBeforeSecond) {
+          await new Promise<void>((go, stop) => {
+            this.tapWait = { go, stop };
+            this.set({
+              busy: {
+                kind: "unlock",
+                step: "One more signature to confirm it stays the same",
+                detail: "Your wallet opens once more to sign the same message.",
+                tap: "Sign again",
+              },
+            });
+          });
+        }
+        this.set({ busy: { kind: "unlock", step: "One more signature to confirm it stays the same", cancel: true } });
+        const sig2 = await this.signOrCancel(wallet, msg);
         if (keysFingerprint(keysFromSignature(sig2)) !== fp) {
           throw new Error(
             "This wallet gives a different signature every time, so it can't hold a VisionSwap account. Try Phantom, Solflare or Backpack.",
@@ -853,12 +1112,20 @@ class Engine {
       }
       await this.open(keys, "wallet");
     } catch (e) {
+      // the wallet app let go of the connection (say, a different wallet app was picked when the phone
+      // asked which one to open): signing works again once the wallet connects again
+      if ((e as Error)?.name === "WalletNotConnectedError") {
+        this.set({ busy: null, error: "Your wallet app needs to connect again: tap Disconnect, then connect your wallet." });
+        return;
+      }
       const m = (e as Error).message || "Signing was cancelled.";
       this.set({ busy: null, error: walletDeclined(e) ? "Signing was cancelled." : m });
     }
   }
 
   private async open(keys: Keys, account: "wallet" | "key") {
+    // every way into an account ends here: none opens without a current acceptance of the Terms
+    requireTerms();
     const fp = keysFingerprint(keys);
     this.keys = keys;
     this.set({
@@ -908,6 +1175,7 @@ class Engine {
 
   /** Opens the account whose key "Keep me signed in" saved. */
   async openSavedKey() {
+    requireTerms();
     const v = ls.get<unknown>("vs:key", null);
     let text: string | null = typeof v === "string" ? v : null; // kept in plain text by an older version (protectSavedKey seals it)
     if (isSealed(v)) {
@@ -954,6 +1222,8 @@ class Engine {
    * but a note that a passkey is used here, and opening the saved key ("saved") leaves storage as it is.
    */
   async openWithKey(text: string, remember: boolean, via: "key" | "passkey" | "saved" = "key") {
+    // before anything is saved or forgotten on this device
+    requireTerms();
     const r = decodePrivateKey(text);
     if ("problem" in r) {
       throw new Error(
@@ -1035,6 +1305,15 @@ class Engine {
   /** This account's private key, for its owner to back up. Only accounts opened with a key have one to show. */
   privateKey(): string | null {
     return this.keys && this.s.account === "key" ? encodePrivateKey(this.keys.master) : null;
+  }
+
+  /**
+   * The open account's key (any account: a wallet's, a passkey's or a key's), for "Link to extension":
+   * handed once, on the person's click, to the VisionSwap extension and to nothing else. Never shown,
+   * logged or put in an address.
+   */
+  linkKey(): string | null {
+    return this.keys ? encodePrivateKey(this.keys.master) : null;
   }
 
   /** What this account still has going: scheduled payments and orders running, and buys waiting to finish. */
@@ -1202,11 +1481,38 @@ class Engine {
     // leaf indexes may differ in the new copy: look through it from the start
     this.owned.clear();
     this.ownLeaves.clear();
+    this.nonceAt.clear();
+    this.unexpected.clear();
     this.scannedTo = 0;
     this.notesDue.forEach((d) => (d.from = 0));
     this.cacheSavedAt = 0;
     await call({ type: "reset" });
     await idbDel(this.cacheKey());
+  }
+
+  /** Set when the next sync starts from a chunk boundary instead of this browser's exact count (a new page, or after a lock). */
+  private coarseNext = true;
+  /** the account the pool copy was last synced for: another one (or none) starts from a chunk boundary too */
+  private cursorFor: Keys | null = null;
+
+  /**
+   * Drops the copy's tail back to the last whole chunk (1,024 leaves, 2,048 nullifiers), so the next
+   * download starts at a boundary every visitor shares. What is dropped is downloaded again at once;
+   * the notes found in it are looked through again (scanNew starts over when the copy shrinks).
+   */
+  private coarsen() {
+    const leaves = Math.floor(this.leafCount / LEAF_CHUNK) * LEAF_CHUNK;
+    if (leaves < this.leafCount) {
+      this.leafBytes = this.leafBytes.slice(0, leaves * LEAF_REC);
+      this.leafCount = leaves;
+    }
+    const nfs = Math.floor(this.nfCount / NF_CHUNK) * NF_CHUNK;
+    if (nfs < this.nfCount) {
+      this.nfBytes = this.nfBytes.slice(0, nfs * 32);
+      this.nfCount = nfs;
+      this.spent.clear();
+      for (let i = 0; i < this.nfCount; i++) this.spent.add(fromBE(this.nfBytes.subarray(i * 32, i * 32 + 32)));
+    }
   }
 
   private async feedWorker() {
@@ -1256,6 +1562,13 @@ class Engine {
     try {
       await this.loadCache();
       const had = this.leafCount + this.nfCount;
+      // the first sync of a page (or of another account) never says exactly how much of the pool this browser
+      // already holds: that count, shared by every account here, would tie sessions and accounts together
+      if (this.coarseNext || this.cursorFor !== this.keys) {
+        this.coarseNext = false;
+        this.cursorFor = this.keys;
+        this.coarsen();
+      }
       // new leaves
       for (;;) {
         const { data, total } = await apiBinary(`/api/pool/leaves?from=${this.leafCount}&limit=20000`);
@@ -1321,6 +1634,8 @@ class Engine {
     if (this.scannedFor !== keys || this.leafCount < this.scannedTo) {
       this.owned.clear();
       this.ownLeaves.clear();
+      this.nonceAt.clear();
+      this.unexpected.clear();
       this.scannedTo = 0;
       this.scannedFor = keys;
       this.everOwned = false;
@@ -1333,6 +1648,15 @@ class Engine {
         // cheap tag check first; only our notes reach the Poseidon check in tryOpen
         const n = tryOpen(keys, i, fromBE(rec.subarray(0, 32)), rec.subarray(32));
         if (!n) continue;
+        // a nonce an earlier leaf already used: someone deposited the same note details again (they are public
+        // once a deposit is sent). Only the first counts; a later copy is never picked nor counted
+        const nk = nonceKey(n);
+        const first = this.nonceAt.get(nk);
+        if (first !== undefined && first !== i) {
+          if (n.amount > 0n && !this.spent.has(n.nullifier)) this.unexpected.set(i, n);
+          continue;
+        }
+        this.nonceAt.set(nk, i);
         this.everOwned = true;
         this.ownLeaves.set(i, n.leaf);
         if (n.amount > 0n && !this.spent.has(n.nullifier)) this.owned.set(i, n);
@@ -1355,6 +1679,7 @@ class Engine {
       if (this.spent.has(n.nullifier)) this.owned.delete(i);
       else if (!this.pendingSpent.has(n.nullifier)) notes.push(n);
     }
+    for (const [i, n] of this.unexpected) if (this.spent.has(n.nullifier)) this.unexpected.delete(i);
     notes.sort((a, b) => (a.amount < b.amount ? 1 : a.amount > b.amount ? -1 : a.index - b.index));
     // a spend's change is shown the moment its notes are spent, not when the pool data catches up with it
     // (shown only: it can't be spent before its notes arrive)
@@ -1369,6 +1694,7 @@ class Engine {
       arriving: coming,
       locked: notes.filter((n) => held.has(nfHex(n.nullifier))).reduce((s, n) => s + n.amount, 0n),
       aside: notes.filter((n) => aside.has(nfHex(n.nullifier))).reduce((s, n) => s + n.amount, 0n),
+      unexpected: [...this.unexpected.values()].reduce((s, n) => s + n.amount, 0n),
     });
   }
 
@@ -1416,6 +1742,14 @@ class Engine {
     return this.s.notes.filter((n) => !held.has(nfHex(n.nullifier)));
   }
 
+  /**
+   * Whether every leaf downloaded so far has been read for this account's notes (true on an empty pool
+   * too, once read): until then the balance shown may still be missing notes.
+   */
+  notesReady(): boolean {
+    return !!this.keys && notesRead({ scannedFor: this.scannedFor, keys: this.keys, scannedTo: this.scannedTo, leafCount: this.leafCount, total: this.s.total });
+  }
+
   /** The private balance that can be spent right now. */
   spendable(): bigint {
     return this.s.balance - this.s.arriving - this.s.locked;
@@ -1437,12 +1771,32 @@ class Engine {
     }
   }
 
+  /** The pool's recent roots (hex) as the last look at the chain showed them, and when: a proof naming none of them can never land. */
+  private lastRing: Set<string> | null = null;
+  private lastRingAt = 0;
+
+  /** The pool's recent roots, read from the chain at most every `maxAgeMs` (VS-16): null when it can't be read. */
+  private async ringNow(maxAgeMs = 20_000): Promise<Set<string> | null> {
+    if (this.lastRing && Date.now() - this.lastRingAt < maxAgeMs) return this.lastRing;
+    const a = await conn()
+      .getAccountInfo(this.pool().tree, "confirmed")
+      .catch(() => null);
+    if (!a) return this.lastRing;
+    this.noteRing(this.pool().decodeTree(a.data).roots);
+    return this.lastRing;
+  }
+  private noteRing(roots: bigint[]) {
+    this.lastRing = new Set(roots.map((r) => hex(toBE(r))));
+    this.lastRingAt = Date.now();
+  }
+
   /** The tree root the proof will use must be one the program knows. Returns the pool's root list as read. */
   private async checkRoot() {
     for (let attempt = 0; attempt < 3; attempt++) {
       const a = await conn().getAccountInfo(this.pool().tree, "confirmed");
       if (!a) throw new Error("The pool account could not be read.");
       const t = this.pool().decodeTree(a.data);
+      this.noteRing(t.roots);
       if (t.roots.includes(await this.workerRoot())) return t;
       if (attempt === 0) {
         // most likely we are a few leaves behind
@@ -1466,8 +1820,13 @@ class Engine {
 
   async refreshPublic() {
     if (!this.s.owner) return;
+    const owner = this.s.owner;
+    // a wallet on the published sanctions list opens no account, and its balance isn't asked for either: the
+    // check runs in this browser first (the list is the same download for everyone), so no request names it
+    await screenList.load(API);
+    if (screenList.listed(owner) === true || this.s.owner !== owner) return;
     try {
-      const l = await conn().getBalance(new PublicKey(this.s.owner), "confirmed");
+      const l = await conn().getBalance(new PublicKey(owner), "confirmed");
       this.set({ publicLamports: BigInt(l) });
     } catch {
       /* keep old value */
@@ -1555,6 +1914,85 @@ class Engine {
     return this.s.waiting.filter((w) => w.depositor === depositor).length;
   }
 
+  // ─── privacy notes before a payment (see privacy.ts) ───
+
+  private ownDepKey() {
+    return `vs:owndep:${this.s.fingerprint}`;
+  }
+
+  /** This account's recent deposits as this device saw them in the waiting room (kept about a week). */
+  private ownDeposits(): OwnDeposit[] {
+    return this.s.fingerprint ? ls.get<OwnDeposit[]>(this.ownDepKey(), []) : [];
+  }
+
+  private noteOwnDeposits(seen: readonly Waiting[]) {
+    if (!this.s.fingerprint) return;
+    const src = (w: Waiting): DepositSource => (w.vision != null ? "vision" : w.deposit != null ? "deposit" : w.hop ? "hop" : "wallet");
+    const before = this.ownDeposits();
+    const next = mergeOwnDeposits(
+      before,
+      seen.map((w) => ({ inner: w.inner, amount: w.amount, src: src(w) })),
+      Date.now(),
+    );
+    if (next.length !== before.length || next.some((d, i) => d.inner !== before[i]?.inner)) ls.set(this.ownDepKey(), next);
+  }
+
+  /**
+   * A recent deposit of this account's that a payment of `amount` to `to` is close to in size (VS-04),
+   * by what leaves the pool for it (public on the chain, like the deposit's amount); null when none is.
+   * The form says so and suggests Later; nothing is held back.
+   */
+  nearDepositFor(to: string | null, amount: bigint): { src: DepositSource } | null {
+    if (amount <= 0n) return null;
+    const d = nearDeposit(this.quoteFor(to, amount).withdraw, this.ownDeposits(), Date.now());
+    return d ? { src: d.src } : null;
+  }
+
+  /**
+   * A payment from the wallet whose standard-size deposit it nearly spends whole (its change is
+   * within a few percent of the deposit): its deposit and its payment are easy to match by amount,
+   * so the form suggests a later time.
+   */
+  walletPayNear(amount: bigint): boolean {
+    const sized = this.walletPayDeposit(amount);
+    if (!("deposit" in sized)) return false;
+    return nearAmount(this.quotePay(amount).withdraw, sized.deposit);
+  }
+
+  /** What the pool holds in notes, as last read from the chain (public: the vault's balance), and when. */
+  private poolValue: { at: number; shielded: bigint } | null = null;
+  private poolValueRun: Promise<void> | null = null;
+
+  /**
+   * Reads what the pool holds (VS-15): the vault's balance less its rent and the deposits still
+   * waiting, from two public accounts everyone reads alike. At most every half minute.
+   */
+  refreshPoolValue(): Promise<void> {
+    if (this.poolValue && Date.now() - this.poolValue.at < 30_000) return Promise.resolve();
+    this.poolValueRun ??= (async () => {
+      try {
+        const [vault, tree] = await conn().getMultipleAccountsInfo([this.pool().vault, this.pool().tree], "confirmed");
+        if (!vault || !tree) return;
+        const rent = BigInt(await conn().getMinimumBalanceForRentExemption(vault.data.length));
+        const pending = this.pool().decodeTree(tree.data).pendingLamports;
+        this.poolValue = { at: Date.now(), shielded: shieldedValue(BigInt(vault.lamports), rent, pending) };
+        this.changedAt = Date.now();
+        this.set({});
+      } catch {
+        /* unknown for now: no note is shown */
+      } finally {
+        this.poolValueRun = null;
+      }
+    })();
+    return this.poolValueRun;
+  }
+
+  /** The share of what the pool holds (basis points) that a payment of `amount` to `to` takes out of it; null while unknown. */
+  poolShare(to: string | null, amount: bigint): number | null {
+    if (amount <= 0n || !this.poolValue) return null;
+    return poolShareBps(this.quoteFor(to, amount).withdraw, this.poolValue.shielded);
+  }
+
   /**
    * The waiting room is public, so the app downloads all of it and picks out
    * this account's deposits locally. Asking the server about each wallet would
@@ -1588,6 +2026,11 @@ class Engine {
         }));
       if (out.map((w) => w.inner).join() !== this.s.waiting.map((w) => w.inner).join()) this.changedAt = Date.now();
       this.set({ waiting: out, slot: r.slot || this.s.slot });
+      // this account's deposits, remembered on this device a little while: a payment close to one in size is easy to match to it (VS-04, VS-12)
+      if (out.length) this.noteOwnDeposits(out);
+      // the server's slot, read now and then, measures the slot time too (until a better figure is known)
+      const ms = r.slot ? this.slotClock.observe(r.slot, Date.now()) : null;
+      if (ms && !this.sampledMs) this.noteMsPerSlot(ms);
     } catch {
       /* keep what we had */
     }
@@ -1610,9 +2053,10 @@ class Engine {
    * full. Every wallet is its own request, in random order, a moment apart, and one that can't be
    * read right now keeps what was shown before.
    */
-  async refreshVision(only?: number[], full = !!only) {
+  async refreshVision(only?: number[], full = !!only, settle = false) {
     const keys = this.keys;
     if (!keys) return;
+    const started = Date.now();
     const recs = ls.get<Record<number, VisionRec>>(this.visionRecsKey(), {});
     const list = only ?? range(this.knownVision()).filter((i) => !retired(recs[i]));
     const got = new Map<number, { view: VisionView | null; rec: VisionRec }>();
@@ -1630,9 +2074,17 @@ class Engine {
     // merged into what is there now: another refresh may have finished meanwhile
     const now = ls.get<Record<number, VisionRec>>(this.visionRecsKey(), {});
     const views = new Map(this.s.vision.map((v) => [v.index, v]));
+    const unspent = this.payingVision.size ? new Set(this.s.notes.map((n) => nfHex(n.nullifier))) : new Set<string>();
     for (const [i, r] of got) {
+      // a wallet moving its SOL into the pool right now: a read showing less waits for the move's own read, once
+      // the waiting room shows the deposit (see sweepInner), so the total never dips meanwhile
+      if (!settle && this.sweeping.has(i) && (r.view?.lamports ?? 0n) < (views.get(i)?.lamports ?? 0n)) continue;
+      // a payment on its way to this wallet whose notes are still in the balance: a read already showing it in the
+      // wallet waits until they've left it (the relayer's answer), so it's never counted in both meanwhile
+      if (holdPayingRead(this.payingVision.get(i), views.get(i)?.lamports ?? 0n, r.view?.lamports ?? 0n, unspent, Date.now())) continue;
       now[i] = r.rec;
       this.landedAt.delete(i);
+      this.readAfter("vision", i, started);
       if (r.view) {
         views.set(i, r.view);
         this.markVision(i);
@@ -1778,14 +2230,86 @@ class Engine {
     }
   }
 
+  /** The pool's public address list as last downloaded (memory only, never a cursor kept across visits). */
+  private addrList: { at: number; map: Map<string, number> } | null = null;
+  /** Looks for used addresses put off because the server's list wasn't whole yet (see runDiscover). */
+  private discoverRetries = 0;
+
   /**
-   * Finds the Vision wallets and deposit addresses this account used, from their history on-chain
-   * rather than this device's memory, the way wallets do: look past the last one known, a few at
-   * a time, until ten in a row were never used. A new device, or one whose storage was cleared,
-   * then shows them all and never hands one out again. Done once per device (the counters it
-   * raises are kept), or again when asked.
+   * The pool's public address list (VS-21, see sdk/src/addrlist.ts), downloaded whole, at most every
+   * `maxAgeMs`: every address that ever deposited, was paid by the pool, or paid for one of its spends.
+   * Null while the server's list doesn't hold the whole history yet (or can't be read right now);
+   * undefined from an older server that has none.
+   */
+  private async poolAddresses(maxAgeMs = 10 * 60_000): Promise<Map<string, number> | null | undefined> {
+    if (this.addrList && Date.now() - this.addrList.at < maxAgeMs) return this.addrList.map;
+    try {
+      const map = new Map<string, number>();
+      for (let from = 0; ; ) {
+        const { data, total, complete } = await apiBinary(`/api/pool/addresses?from=${from}&limit=50000`);
+        if (!complete) return null;
+        readAddrList(data, map);
+        from += Math.floor(data.length / ADDR_REC);
+        if (from >= total || data.length < ADDR_REC) break;
+      }
+      this.addrList = { at: Date.now(), map };
+      return map;
+    } catch (e) {
+      return e instanceof ApiError && e.status === 404 ? undefined : null;
+    }
+  }
+
+  /**
+   * Finds the Vision wallets and deposit addresses this account used, the way wallets do (look past
+   * the last one known until twenty in a row were never used), in the pool's public address list
+   * (VS-21): a Vision wallet is funded by the pool and a deposit address deposits into it, so both
+   * show up there. Everything is matched in this browser: no address is asked about, and above all
+   * none this account hasn't used yet, which told whoever answered those questions which addresses
+   * belong together. A new device, or one whose storage was cleared, then shows them all and never
+   * hands one out again. Done once per device (the counters it raises are kept), or again when asked.
+   * While the server's list doesn't hold the whole history yet, it waits for a later look; an older
+   * server without the list is asked as before (by each address's history).
    */
   private async runDiscover(again: boolean) {
+    const keys = this.keys;
+    if (!keys) return;
+    const list = await this.poolAddresses(again ? 0 : undefined);
+    if (this.keys !== keys) return;
+    if (list === undefined) return this.runDiscoverByHistory(again);
+    if (list === null) {
+      // the server is still reading the pool's history (just after it started), or couldn't be asked: looked for again in a
+      // couple of minutes while this account stays open (never by asking about addresses one by one meanwhile)
+      if (this.discoverRetries++ < 15) setTimeout(() => this.keys === keys && void this.discover(again), randInt(90_000, 150_000));
+      return;
+    }
+    this.discoverRetries = 0;
+    const done = ls.get<{ vision?: number; deposit?: number }>(this.foundKey(), {});
+    const did = (role: "v" | "d", i: number, flags: number) => ((list.get(this.kp(role, i).publicKey.toBase58()) ?? 0) & flags) !== 0;
+    if (again || !done.deposit) {
+      const r = listScan(this.knownDeposit(), (i) => did("d", i, ADDR_DEPOSITED));
+      if (r.next > 0) this.markDeposit(r.next - 1);
+      done.deposit = Date.now();
+      ls.set(this.foundKey(), done);
+      // whatever they hold now shows under Deposit addresses, and moves in by itself (used addresses only are read)
+      if (r.found.length) await this.refreshDeposits({ only: r.found, tokens: true });
+      if (this.keys !== keys) return;
+    }
+    if (again || !done.vision) {
+      // an account that never held a note can't have funded a Vision wallet (all leaves were looked through)
+      const never = !this.everOwned && this.scannedFor === keys && this.s.total > 0 && this.scannedTo >= this.s.total;
+      if (again || !never) {
+        const r = listScan(this.knownVision(), (i) => did("v", i, ADDR_PAID | ADDR_DEPOSITED));
+        if (r.next > 0) this.markVision(r.next - 1);
+        // looked over in full: an emptied wallet can still hold tokens someone sent it
+        if (r.found.length) await this.refreshVision(r.found, true);
+      }
+      done.vision = Date.now();
+      ls.set(this.foundKey(), done);
+    }
+  }
+
+  /** runDiscover for an older server without the public address list: each address's history on-chain, a few at a time. */
+  private async runDiscoverByHistory(again: boolean) {
     const keys = this.keys;
     if (!keys) return;
     const done = ls.get<{ vision?: number; deposit?: number }>(this.foundKey(), {});
@@ -1939,7 +2463,7 @@ class Engine {
     const q = new URLSearchParams({ to: r.address });
     if (r.amount) q.set("amount", solText(BigInt(r.amount)));
     if (r.note) q.set("note", r.note);
-    return `${location.origin}/pay#${q.toString()}`;
+    return `${siteOrigin()}/pay#${q.toString()}`;
   }
 
   removeRequest(index: number) {
@@ -1982,9 +2506,38 @@ class Engine {
     void this.refreshDeposits({ only: [i] });
   }
 
-  /** The network fee of a deposit: 5,000 lamports per signature (the guard's pass counts as one), plus its small priority fee. */
+  /** The network fee of a deposit: 5,000 lamports per signature (the guard's pass counts as one), plus its small priority fee (the most its band can draw). */
   depositTxFee(): bigint {
-    return 5_000n * (this.s.pool?.requireAttestation ? 2n : 1n) + ownPriority(DEPOSIT_CU);
+    return this.sigFees() + ownPriorityMax("deposit");
+  }
+
+  /** What a deposit's signatures cost: 5,000 lamports each (the guard's pass counts as one). */
+  private sigFees(): bigint {
+    return SIG_FEE * (this.s.pool?.requireAttestation ? 2n : 1n);
+  }
+
+  /** The exact network fee of a deposit (or move) built with `shape`. */
+  private depositFeeOf(shape: OwnShape): bigint {
+    return this.sigFees() + priorityOf(shape);
+  }
+
+  /**
+   * The last deposit from an address that should end at exactly zero (VS-13): the shape it is sent
+   * with and how much it deposits, from `budget` (what the address holds less the waiting-room rent
+   * and this transaction's own fee at `shape`). A rounding sliver it can't deposit is paid as a little
+   * more priority in the same transaction (see foldDust), never as a separate transfer into the
+   * waiting-room account, which marked automated deposits; a sliver too big for that is left out of
+   * the deposit instead, so the address keeps at least its rent minimum (and goes in with its next move).
+   */
+  private lastDeposit(budget: bigint, shape: OwnShape, max: bigint, rentWallet: bigint): { amount: bigint; shape: OwnShape } {
+    let amount = this.maxDepositFor(budget);
+    if (amount > max) amount = max;
+    const dust = budget - amount - this.depositFee(amount);
+    if (dust <= 0n || dust >= rentWallet) return { amount, shape };
+    const folded = foldDust(shape, dust);
+    if (folded) return { amount, shape: folded };
+    const less = this.maxDepositFor(budget - rentWallet);
+    return { amount: less > max ? max : less, shape };
   }
 
   /** The least a deposit address has to receive to make the smallest deposit: the deposit, its fee, the waiting-room rent and the network fee. */
@@ -2023,9 +2576,10 @@ class Engine {
    * again. On unlock also the ones that held SOL or tokens last time. `only` reads just those;
    * `tokens` also looks at their tokens straight away (a first look, or "Check for more").
    */
-  async refreshDeposits(opts: { only?: number[]; unlock?: boolean; tokens?: boolean } = {}) {
+  async refreshDeposits(opts: { only?: number[]; unlock?: boolean; tokens?: boolean; settle?: boolean } = {}) {
     const keys = this.keys;
     if (!keys) return;
+    const started = Date.now();
     const watch = this.depositWatch();
     let singles: number[];
     if (opts.only) singles = opts.only;
@@ -2057,8 +2611,13 @@ class Engine {
       if (this.keys !== keys) return;
       const funded = new Set(ls.get<number[]>(this.fundedKey(), []));
       for (const [i, l] of seen) {
+        // an address moving its SOL into the pool right now: a read showing less (the Receive screen checks its
+        // address every few seconds) waits for the move's own read, once the waiting room shows the deposit
+        // (see moveDeposit), so the total never dips meanwhile
+        if (!opts.settle && this.moving.has(i) && l < (this.depSeen.get(i) ?? 0n)) continue;
         if ((this.depSeen.get(i) ?? 0n) !== l) this.changedAt = Date.now();
         this.depSeen.set(i, l);
+        this.readAfter("deposit", i, started);
         const tokens = this.depositTokens.get(this.kp("d", i).publicKey.toBase58());
         if (l > 0n || tokens?.length) {
           this.markDeposit(i);
@@ -2464,37 +3023,35 @@ class Engine {
         const last = k === parts.length - 1;
         if (parts.length > 1) this.step("shield", `Deposit ${k + 1} of ${parts.length}`, "The pool takes at most a set amount per deposit, so this goes in parts.");
         let amount = parts[k];
-        let dust = 0n;
+        let shape = drawOwnShape("deposit");
         if (last) {
-          // plan the last part from what is really there now (more may have arrived meanwhile)
+          // plan the last part from what is really there now (more may have arrived meanwhile), at this
+          // transaction's own fee: whatever is left must be zero or enough to keep the address open
           lamports = BigInt(await conn().getBalance(kp.publicKey, "confirmed"));
-          const budget = lamports - rent.pending - txFee;
-          amount = this.maxDepositFor(budget);
-          if (amount > max) amount = max;
-          dust = budget - amount - this.depositFee(amount);
-          // whatever is left must be zero or enough to keep the address open; a sliver rides along instead
-          if (dust >= rent.wallet) dust = 0n;
+          ({ amount, shape } = this.lastDeposit(lamports - rent.pending - this.depositFeeOf(shape), shape, max, rent.wallet));
         }
         check(); // the note must belong to the account this address belongs to
-        const { ixs } = await this.depositIxs(kp.publicKey, amount, k === 0 ? att : undefined);
-        if (dust > 0n) {
-          const pendingAccount = ixs[ixs.length - 1].keys[4].pubkey;
-          ixs.push(SystemProgram.transfer({ fromPubkey: kp.publicKey, toPubkey: pendingAccount, lamports: dust }));
-        }
+        const { ixs } = await this.depositIxs(kp.publicKey, amount, k === 0 ? att : undefined, shape);
         const tx = new Transaction().add(...ixs);
         tx.feePayer = kp.publicKey;
         tx.recentBlockhash = (await conn().getLatestBlockhash("confirmed")).blockhash;
         tx.sign(kp);
         sent = true;
         sig = await sendAndConfirm(tx, "deposit");
-        landed.push({ amount, sig, cost: amount + this.depositFee(amount) + rent.pending + txFee + dust });
+        // the address still shows this SOL until it's read again: its deposit counts there, not in the waiting room too
+        if (this.s.fingerprint === fp) this.noteMoved("deposit", index, amount);
+        // what this part took from the address (the rounding sliver of the last one rides in its fee)
+        landed.push({ amount, sig, cost: amount + this.depositFee(amount) + rent.pending + this.depositFeeOf(shape) });
         total += amount;
         check();
       }
       check();
       book();
       this.step("shield", "Into the waiting room");
-      await Promise.all([this.awaitWaiting(kp.publicKey.toBase58(), before, parts.length), this.refreshDeposits({ only: [index] })]);
+      // the address is read again only once the waiting room shows the deposit: read first, it would show the SOL gone
+      // before the waiting room shows it arrived, and the total would dip (to 0, for an account with nothing else) meanwhile
+      await this.awaitWaiting(kp.publicKey.toBase58(), before, parts.length);
+      await this.refreshDeposits({ only: [index], settle: true });
       if (gone()) return sig;
       this.done(
         auto ? "Received and shielded" : "Moved into the pool",
@@ -2513,15 +3070,18 @@ class Engine {
       if (auto && !refused) {
         // a passing problem with a move that started by itself shows nothing: it waits and tries again
         if (status === 451) {
-          // not from this region: once per visit, and nothing is remembered (a different connection may be fine)
-          this.retry.set(index, { at: Infinity, n: 99, why: "Moving into the pool isn't available from this region." });
+          // not from this region (or, "region_unknown", a location the server couldn't check): once per visit,
+          // and nothing is remembered (a different connection may be fine)
+          const unknownPlace = e instanceof ApiError && e.data?.code === "region_unknown";
+          this.retry.set(index, { at: Infinity, n: 99, why: unknownPlace ? m : "Moving into the pool isn't available from this region." });
           this.fail(e);
         }
         const passing =
           e instanceof StillPending ||
           status === 429 ||
           status >= 500 ||
-          /expired|blockhash|busy|for rent|reach the network|briefly unavailable|paused|deposit limit|failed to (fetch|get)|network ?error|load failed|timed? ?out|dropped|not indexed/i.test(m);
+          // ("place in the waiting room": someone else's deposit took this note's place first; the next try makes a new note)
+          /expired|blockhash|busy|for rent|reach the network|briefly unavailable|paused|deposit limit|failed to (fetch|get)|network ?error|load failed|timed? ?out|dropped|not indexed|place in the waiting room/i.test(m);
         if (passing) {
           const why =
             status === 429 || status === 503 || /screening/i.test(m)
@@ -2559,6 +3119,34 @@ class Engine {
     }
   }
 
+  // ─── addresses this account's own wallets paid in public ───
+  private paidKey() {
+    return `vs:paidto:${this.s.fingerprint}`;
+  }
+
+  /**
+   * Whether one of this account's wallets (a Vision wallet or a deposit address), other than `from`
+   * when it is given, already sent an ordinary public transfer to `address` from this device. Paying
+   * the same address from a second wallet shows on the chain that both wallets belong together, so the
+   * forms warn first.
+   */
+  paidBefore(address: string, from?: string): boolean {
+    if (!this.s.fingerprint) return false;
+    const to = address.trim();
+    return this.paidList().some((p) => p.to === to && p.from !== from);
+  }
+
+  private paidList(): { to: string; from: string }[] {
+    return ls.get<unknown[]>(this.paidKey(), []).filter((p): p is { to: string; from: string } => !!p && typeof p === "object" && typeof (p as { to?: unknown }).to === "string");
+  }
+
+  /** Notes an address one of this account's wallets (`from`) just paid in public (kept on this device only, the latest 500). */
+  private notePaid(address: string, from: string) {
+    if (!this.s.fingerprint) return;
+    const list = this.paidList().filter((p) => p.to !== address || p.from !== from);
+    ls.set(this.paidKey(), [{ to: address, from }, ...list].slice(0, 500));
+  }
+
   /** Sends everything a deposit address holds to another wallet, as an ordinary (public) transfer. */
   async sendFromDeposit(index: number, to: string) {
     try {
@@ -2570,18 +3158,24 @@ class Engine {
       }
       const kp = this.depositKeypair(index);
       if (dest.equals(kp.publicKey)) throw new Error("That's this deposit address itself.");
+      // the recipient is screened before anything is signed, as for a payment sent without the relayer (P0-3)
+      this.step("send", "Checking the recipient");
+      await this.checkSendAll(dest.toBase58());
       this.step("send", "Sending from your deposit address");
       const lamports = BigInt(await conn().getBalance(kp.publicKey, "confirmed"));
-      const amount = lamports - 5_000n;
+      // a compute limit and price of its own, like the app's other transactions (VS-34): the address still ends at zero
+      const shape = drawOwnShape("cleanup");
+      const amount = lamports - SIG_FEE - priorityOf(shape);
       if (amount <= 0n) throw new Error("There's nothing to send at this address.");
       const { wallet: rentMin } = await this.rentNow();
       const exists = (await conn().getBalance(dest, "confirmed")) > 0;
       if (!exists && amount < rentMin) throw new Error(`A new address needs at least ${fmt(rentMin, 6)} SOL to exist. Send it to a wallet that already holds SOL.`);
-      const tx = new Transaction().add(SystemProgram.transfer({ fromPubkey: kp.publicKey, toPubkey: dest, lamports: amount }));
+      const tx = new Transaction().add(...budgetOf(shape), SystemProgram.transfer({ fromPubkey: kp.publicKey, toPubkey: dest, lamports: amount }));
       tx.feePayer = kp.publicKey;
       tx.recentBlockhash = (await conn().getLatestBlockhash("confirmed")).blockhash;
       tx.sign(kp);
       const sig = await sendAndConfirm(tx, "transfer");
+      this.notePaid(dest.toBase58(), kp.publicKey.toBase58());
       const who = `${dest.toBase58().slice(0, 4)}…${dest.toBase58().slice(-4)}`;
       this.setHeld(index, null);
       this.retry.delete(index);
@@ -2616,8 +3210,34 @@ class Engine {
    * What a private payment of exactly `amount` to an outside address costs: as quoteSend, plus the
    * delivery fee its one-time sending address pays for the standard transfer to the recipient.
    */
-  quotePay(amount: bigint, relayerFee = this.relayerFee()) {
-    return payQuote(amount, relayerFee, this.feeBps(), this.treasury?.view);
+  quotePay(amount: bigint, relayerFee = this.relayerFee(), shape: DeliveryShape | null = this.drawnShape() ?? null) {
+    return payQuote(amount, relayerFee, this.feeBps(), this.treasury?.view, shape?.fee);
+  }
+
+  /**
+   * The shape the next payment's delivery is signed in (VS-34): drawn at random within the band the
+   * server takes, kept until a payment uses it (so the fees the form shows are the ones paid), then
+   * drawn again. Undefined when the server takes only the fixed shape (an older one).
+   */
+  private shapeNext: DeliveryShape | null = null;
+  private drawnShape(): DeliveryShape | undefined {
+    if (!this.s.pool?.delivery?.shapes) return undefined;
+    this.shapeNext ??= drawDeliveryShape(this.s.pool.delivery) ?? null;
+    return this.shapeNext ?? undefined;
+  }
+  /** The shape for a payment about to be made: the one shown, and a fresh one is drawn for the next. */
+  private takeShape(): DeliveryShape | undefined {
+    const s = this.drawnShape();
+    this.shapeNext = null;
+    return s;
+  }
+  /** A shape for a payment that must fit `most` lamports out of the pool (one note of its own): a draw that keeps within it, else the fixed one. */
+  private shapeWithin(amount: bigint, most: bigint | null): DeliveryShape | undefined {
+    for (let i = 0; i < 8; i++) {
+      const s = this.takeShape();
+      if (!s || most == null || this.quotePay(amount, this.relayerFee(), s).withdraw <= most) return s;
+    }
+    return undefined;
   }
 
   /** The quote for a payment to `to` (null: not typed yet, taken as an outside address). */
@@ -2627,7 +3247,7 @@ class Engine {
 
   /** The most one private payment can deliver, after fees (a delivery's too) and after joining notes when the balance is in several pieces. */
   maxSendable(): bigint {
-    return this.maxSpend(DELIVERY_FEE);
+    return this.maxSpend(this.drawnShape()?.fee ?? DELIVERY_FEE);
   }
 
   /**
@@ -2642,8 +3262,9 @@ class Engine {
       cost,
     );
     if (top <= cost) return 0n;
-    let x = splitWithdraw(top, cost, this.feeBps()).toRecipient - DELIVERY_FEE;
-    for (let i = 0; x > 0n && i < 64 && grossUp(x + DELIVERY_FEE, cost, this.feeBps()) > top; i++) x -= 1n + x / 1_000_000_000n;
+    const dfee = this.drawnShape()?.fee ?? DELIVERY_FEE;
+    let x = splitWithdraw(top, cost, this.feeBps()).toRecipient - dfee;
+    for (let i = 0; x > 0n && i < 64 && grossUp(x + dfee, cost, this.feeBps()) > top; i++) x -= 1n + x / 1_000_000_000n;
     return x > 0n ? x : 0n;
   }
 
@@ -2872,13 +3493,14 @@ class Engine {
           continue;
         }
         // still holding a payment: kept on this device's ledger while it does (see pruneLegs)
-        if (BigInt(bal) >= rentMin + DELIVERY_FEE && now - (leg.held ?? 0) > HELD_MARK_MS) this.patchLeg(leg.hop, { held: now });
-        if (BigInt(bal) < rentMin + DELIVERY_FEE) continue;
+        const dfee = feeOfShape(leg.shape);
+        if (BigInt(bal) >= rentMin + dfee && now - (leg.held ?? 0) > HELD_MARK_MS) this.patchLeg(leg.hop, { held: now });
+        if (BigInt(bal) < rentMin + dfee) continue;
         // its history shows no delivery: it waits for this app (one whose history couldn't be read stays as it is)
         if (by === null && leg.status !== "waiting") this.patchLeg(leg.hop, { status: "waiting" });
         // finished by itself only when its history shows no delivery and it holds what an undelivered
         // payment does; anything else (a history that can't be read, a refund) is the owner's to decide
-        if (by === null && autoFinishable(BigInt(bal), BigInt(leg.amount)) && (await this.finishInBackground(leg.hop, leg.to))) continue;
+        if (by === null && autoFinishable(BigInt(bal), BigInt(leg.amount), dfee) && (await this.finishInBackground(leg.hop, leg.to))) continue;
         // one whose history can't be told is offered for a look: into the private balance, or anywhere the owner picks
         stuck.push({ hop: leg.hop, lamports: BigInt(bal), to: leg.to, kind: by === null ? "finish" : "look" });
       }
@@ -2960,9 +3582,10 @@ class Engine {
           break;
         }
         // nothing there to pass on (or only dust a stranger sent)
-        if (BigInt(bal) < (this.s.rent?.wallet ?? 0n) + DELIVERY_FEE) continue;
+        const dfee = feeOfShape(leg?.shape ?? j.shape);
+        if (BigInt(bal) < (this.s.rent?.wallet ?? 0n) + dfee) continue;
         // finished by itself only when its history shows no delivery and it holds what an undelivered payment does
-        if (by !== null || !autoFinishable(BigInt(bal), BigInt(leg?.amount ?? j.amount))) continue;
+        if (by !== null || !autoFinishable(BigInt(bal), BigInt(leg?.amount ?? j.amount), dfee)) continue;
         if (this.hopKeypair(hop) && (await this.finishInBackground(hop, j.to))) break;
       }
     }
@@ -2989,13 +3612,16 @@ class Engine {
   private async scanHopsNow(deep: boolean): Promise<number | undefined> {
     const keys = this.keys;
     if (!keys) return;
-    let open: { hop: string; lamports: string | null }[] = [];
-    if (!deep) {
-      try {
-        open = (await api<{ hops: { hop: string; lamports: string | null }[] }>("/api/hops/open")).hops;
-      } catch {
-        return;
-      }
+    let open: { hop: string; lamports: string | null; box?: string }[] = [];
+    // the server seals each listed delivery's record to its sending address's own key (VS-57): no lookup is signed then,
+    // on a look of every address too (the list is public and downloaded whole, so asking for it names none of them)
+    let sealed = false;
+    try {
+      const o = await api<{ hops: { hop: string; lamports: string | null; box?: string }[]; sealed?: boolean }>("/api/hops/open");
+      open = o.hops;
+      sealed = o.sealed === true;
+    } catch {
+      return;
     }
     // every own leaf's sending address, worked out once each (a moment apart now and then, so the page stays responsive)
     let n = 0;
@@ -3019,33 +3645,50 @@ class Engine {
     const before = saved.filter((h) => mine.has(h));
     const emptied = new Set<string>();
     if (deep) {
-      // every sending address of this account, read straight from the chain (the owner asked: see checkAllHops)
+      // every sending address of this account, read straight from the chain (the owner asked: see checkAllHops), mixed
+      // with others the pool paid, from its public address list, so the read doesn't show which are this account's (VS-57)
       const all = [...mine];
-      const infos = await this.accounts(all.map((a) => new PublicKey(a)));
+      const list = await this.poolAddresses();
       if (this.keys !== keys) return;
-      all.forEach((hop, i) => {
-        const l = BigInt(infos[i]?.lamports ?? 0);
+      const paid = list ? [...list].flatMap(([a, fl]) => (fl & ADDR_PAID ? [a] : [])) : [];
+      const asked = withDecoys(all, paid, 2);
+      const infos = await this.accounts(asked.map((a) => new PublicKey(a)));
+      if (this.keys !== keys) return;
+      const bal = new Map(asked.map((a, i) => [a, BigInt(infos[i]?.lamports ?? 0)]));
+      for (const hop of all) {
+        const l = bal.get(hop) ?? 0n;
         if (worthShowing(l, rentMin)) fresh.push({ hop, lamports: l });
-      });
+      }
     } else {
       const listed = new Set(open.map((o) => o.hop));
-      const found = [...open.filter((o) => mine.has(o.hop)), ...before.filter((h) => !listed.has(h)).map((hop) => ({ hop, lamports: null }))];
-      // what the relayer listed may be a day old: each is read again now
-      for (const o of found.slice(0, 20)) {
-        const l = await conn()
-          .getBalance(new PublicKey(o.hop), "confirmed")
-          .catch(() => null);
-        if (l !== null && worthShowing(BigInt(l), rentMin)) fresh.push({ hop: o.hop, lamports: BigInt(l) });
-        // one found earlier that holds nothing (or only dust) now needs no more looks
-        else if (l !== null) emptied.add(o.hop);
+      const found = [...open.filter((o) => mine.has(o.hop)), ...before.filter((h) => !listed.has(h)).map((hop) => ({ hop, lamports: null }))].slice(0, 20);
+      // what the relayer listed may be a day old: read again now, in one read mixed with other listed addresses, so it
+      // doesn't show which of them are this account's (VS-57)
+      const asked = withDecoys(
+        found.map((o) => o.hop),
+        open.map((o) => o.hop),
+        4,
+      );
+      const infos = found.length ? await this.accounts(asked.map((a) => new PublicKey(a))).catch(() => null) : [];
+      if (this.keys !== keys) return;
+      if (infos) {
+        const bal = new Map(asked.map((a, i) => [a, BigInt(infos[i]?.lamports ?? 0)]));
+        for (const o of found) {
+          const l = bal.get(o.hop) ?? 0n;
+          if (worthShowing(l, rentMin)) fresh.push({ hop: o.hop, lamports: l });
+          // one found earlier that holds nothing (or only dust) now needs no more looks
+          else emptied.add(o.hop);
+        }
       }
     }
     if (this.keys !== keys) return;
     // (one not worked out yet on this look stays as it was)
     // (read again just before: what another look kept meanwhile is built on, never undone)
     if (this.s.fingerprint) ls.set(deepKey, keptFound(ls.get<string[]>(deepKey, []), mine, deep, fresh.map((o) => o.hop), emptied));
-    // one this device has no record of: its own delivery, as the relayer remembers it (asked with the address's signature)
+    // one this device has no record of: its own delivery, as the relayer remembers it (sealed to the address's own key in
+    // the open list; an older server is asked with the address's signature)
     const known = new Map<string, { delivered: boolean; to: string | null }>();
+    const boxes = new Map(open.flatMap((o) => (o.box ? [[o.hop, o.box] as const] : [])));
     // ones whose lookup failed: never taken as delivered (or not) on that alone; they keep what was shown for them
     const unsure = new Set<string>();
     let asked = 0;
@@ -3053,13 +3696,20 @@ class Engine {
       if (legs.some((l) => l.hop === o.hop)) continue;
       const kp = this.hopKeypair(o.hop);
       if (!kp) continue;
-      // paced under the relayer's limit (see LOOKUP_GAP_MS)
-      const wait = lookupWait(asked++);
-      if (wait) {
-        await sleep(wait);
-        if (this.keys !== keys) return;
+      let r: HopLookup | null;
+      if (sealed) {
+        // its record sealed to this address's key (none: the server keeps none for it)
+        const box = boxes.get(o.hop);
+        r = box ? openRecord(kp, box) : { status: "unknown" };
+      } else {
+        // paced under the relayer's limit (see LOOKUP_GAP_MS)
+        const wait = lookupWait(asked++);
+        if (wait) {
+          await sleep(wait);
+          if (this.keys !== keys) return;
+        }
+        r = await this.lookupHop(kp);
       }
-      const r = await this.lookupHop(kp);
       if (!r) {
         unsure.add(o.hop);
         continue;
@@ -3203,17 +3853,13 @@ class Engine {
       for (let k = 0; k < parts.length; k++) {
         if (parts.length > 1) this.step("shield", `Deposit ${k + 1} of ${parts.length}`, "The pool takes at most a set amount per deposit, so this goes in parts.");
         let amount = parts[k];
-        let dust = 0n;
+        let shape = drawOwnShape("deposit");
         if (k === parts.length - 1) {
-          // the last part from what is really there now, so the address ends at zero (a sliver rides along)
-          const budget = BigInt(await conn().getBalance(kp.publicKey, "confirmed")) - rent.pending - txFee;
-          amount = this.maxDepositFor(budget);
-          if (amount > max) amount = max;
-          dust = budget - amount - this.depositFee(amount);
-          if (dust >= rent.wallet) dust = 0n;
+          // the last part from what is really there now, at this transaction's own fee, so the address ends at zero
+          const budget = BigInt(await conn().getBalance(kp.publicKey, "confirmed")) - rent.pending - this.depositFeeOf(shape);
+          ({ amount, shape } = this.lastDeposit(budget, shape, max, rent.wallet));
         }
-        const { ixs } = await this.depositIxs(kp.publicKey, amount, k === 0 ? att : undefined);
-        if (dust > 0n) ixs.push(SystemProgram.transfer({ fromPubkey: kp.publicKey, toPubkey: ixs[ixs.length - 1].keys[4].pubkey, lamports: dust }));
+        const { ixs } = await this.depositIxs(kp.publicKey, amount, k === 0 ? att : undefined, shape);
         const tx = new Transaction().add(...ixs);
         tx.feePayer = kp.publicKey;
         tx.recentBlockhash = (await conn().getLatestBlockhash("confirmed")).blockhash;
@@ -3314,9 +3960,11 @@ class Engine {
       if (this.ownKeypairFor(dest.toBase58())) throw new Error("That is one of this account's own wallets. Paste an exchange's deposit address.");
       await this.checkRecipients([{ to: dest.toBase58(), amount, offCurveOk: true, lookalikeOk: true }], false);
       await this.readTreasury();
-      const q = this.quotePay(amount);
+      // in a drawn shape like any payment (VS-34), so the check shows how a real one is credited
+      const drawn = this.takeShape();
+      const q = this.quotePay(amount, this.relayerFee(), drawn ?? null);
       const paid = await this.withInputs("send", q.withdraw, (inputs) =>
-        this.proveAndPayout("send", inputs, { kind: "pay", to: dest, amount, mode: "instant", only: shape, offCurveOk: true }, q.withdraw, q.relayerFee),
+        this.proveAndPayout("send", inputs, { kind: "pay", to: dest, amount, mode: "instant", only: shape, offCurveOk: true, ...(drawn ? { shape: drawn } : {}) }, q.withdraw, q.relayerFee),
       );
       const went = paid.sig ? await this.deliveryShape(paid.sig) : null;
       const label = `${fmt(amount)} SOL to ${shortAddr(dest.toBase58())}`;
@@ -3657,7 +4305,8 @@ class Engine {
     const b = this.s.batch;
     if (!b || !b.paused || this.s.batchAway || this.batchAway()) return;
     if (b.items.some((x) => x.status === "running")) return void this.resolveBatch(true);
-    this.saveBatch({ ...b, paused: false, nextAt: Date.now() });
+    // after a stop to ask: what the person now agrees to is kept (the new price, the loss, the tax)
+    this.saveBatch(continueHeld(b, Date.now()));
     this.runBatch();
   }
 
@@ -3808,24 +4457,75 @@ class Engine {
     const now = this.s.batch;
     if (this.keys !== keys || !now || now.id !== id || now.stopped || now.items[k].status !== "waiting") return;
     this.saveBatch(setItem(now, k, { status: "running", before, error: undefined }));
+    // spaced out: a new wallet whose payment from the pool needs joins first gets them as this turn, and its
+    // payment a turn of its own after a fresh gap, so the joins never run back to back with it
+    if (now.kind === "buyNew" && now.pacing === "spaced" && !x.finish && !x.joined) {
+      let joined: boolean;
+      try {
+        joined = await this.batchJoins(now, x);
+      } catch (e) {
+        // joins that didn't all go end this turn like a buy that didn't: its payment never follows them straight away
+        return this.batchEnd(id, k, keys, undefined, (e as Error)?.message || "Something went wrong.");
+      }
+      if (joined) return this.batchJoined(id, k, keys);
+    }
     let sig: string | undefined;
     let err: string | null = null;
+    let hold: Hold | undefined;
     try {
       sig = (await this.batchAct(id, k, owed)) || undefined;
     } catch (e) {
       err = (e as Error)?.message || "Something went wrong.";
+      hold = holdOf(e);
     }
-    this.batchEnd(id, k, keys, sig, err);
+    this.batchEnd(id, k, keys, sig, err, hold);
   }
 
-  /** Records how a wallet's turn ended and sets up the next one after the gap (a busy server: a little later, the same wallet). */
-  private batchEnd(id: string, k: number, keys: Keys | null, sig: string | undefined, err: string | null) {
+  /**
+   * The joins a new wallet's payment from the pool needs, made now on their own (true), or nothing to
+   * do (false: one spend already covers it, or no joins can make it fit, which its buy then says).
+   */
+  private async batchJoins(b: Batch, x: BatchItem): Promise<boolean> {
+    if (!b.mint) return false;
+    // a try again whose wallet already holds its SOL buys from there (see batchAct): nothing to join for
+    if (x.index != null && BigInt(await conn().getBalance(this.visionKeypair(x.index).publicKey, "confirmed")) > 0n) return false;
+    const reserve = await this.reserveFor(b.mint, b.program);
+    const withdraw = this.quoteSend(BigInt(x.amount) + reserve).withdraw;
+    this.step("buy", "Checking the pool");
+    await this.sync();
+    if (selectInputs(this.freeNotes(), withdraw) || !this.mergePlan(withdraw).ok) return false;
+    await this.inputsFor("buy", withdraw);
+    return true;
+  }
+
+  /** A wallet's turn that made its joins: its payment and buy come at its next turn, after a fresh gap (one stopped meanwhile keeps nothing back: nothing was bought). */
+  private batchJoined(id: string, k: number, keys: Keys | null) {
+    if (this.s.said.batch) this.clearSaid("batch");
+    const cur = this.s.batch;
+    if (this.keys !== keys || !cur || cur.id !== id) return;
+    this.saveBatch({ ...setItem(cur, k, { status: cur.stopped ? "skipped" : "waiting", joined: true }), nextAt: Date.now() + gapMs(cur.pacing) });
+    this.runBatch();
+  }
+
+  /**
+   * Records how a wallet's turn ended and sets up the next one after the gap (a busy server: a little
+   * later, the same wallet). A turn that stopped to ask (its price moved past the approved one, the
+   * market check wants a yes) pauses the whole batch with the reason: nothing goes on by itself.
+   */
+  private batchEnd(id: string, k: number, keys: Keys | null, sig: string | undefined, err: string | null, hold?: Hold) {
     // its result was kept for the batch's spot: the card says it per wallet instead
     if (this.s.said.batch) this.clearSaid("batch");
     // locked meanwhile: the item stays as it was saved, and is looked up after the next unlock
     const cur = this.s.batch;
     if (this.keys !== keys || !cur || cur.id !== id) return;
     const it = cur.items[k];
+    if (err != null && hold) {
+      const buy = cur.kind === "buyNew" || cur.kind === "buyFrom";
+      // (a new wallet funded before its swap stopped to ask finishes there: no second pool fee)
+      const name = itemName(it);
+      this.saveBatch(holdBatch(cur, k, { ...hold, text: hold.text.includes(name) ? hold.text : `${name}: ${hold.text}` }, buy && it.index != null && !!this.buyIntent(it.index)));
+      return;
+    }
     let wait = gapMs(cur.pacing);
     let next = it;
     if (err == null) {
@@ -3846,10 +4546,14 @@ class Engine {
     const b = this.s.batch!;
     const x = b.items[k];
     const slip = b.slippageBps ?? 100;
-    // back to back, every wallet keeps to the price that was shown; spaced out over minutes, each one
-    // trades at the price of its own turn, within the price room (a minute-old price would turn most away)
-    const o: TradeOpts = { speed: speedOf(b.speed), ...(x.minOut && b.pacing === "fast" ? { minOut: BigInt(x.minOut) } : {}) };
-    if ((b.kind === "buyNew" || b.kind === "buyFrom") && x.finish && x.index != null) return this.finishBuy(x.index);
+    // every turn, spaced out or back to back, is held to the approved price (the review's last-wallet price): a
+    // fresh quote more than the limit away stops the batch to ask, and the chain may give no less than the
+    // turn's amount at that price less the limit. (A batch from before there was one keeps its shown minimum.)
+    const guard = turnGuard(b, k);
+    const floor = (amount: bigint): bigint | undefined =>
+      guard.ref ? turnFloor(amount, guard.ref, guard.driftBps ?? DRIFT_DEFAULT_BPS) : x.minOut ? (BigInt(x.minOut) * amount) / BigInt(x.amount) : undefined;
+    const o: TradeOpts = { speed: speedOf(b.speed), symbol: b.symbol, guard, minOut: floor(BigInt(x.amount)) };
+    if ((b.kind === "buyNew" || b.kind === "buyFrom") && x.finish && x.index != null) return this.finishBuy(x.index, false, false, guard);
     switch (b.kind) {
       case "buyNew":
         // a try again whose new wallet already holds its SOL (its buy never started) buys from there: the pool isn't paid twice
@@ -3876,7 +4580,7 @@ class Engine {
           const lamports = BigInt(await conn().getBalance(this.visionKeypair(x.index!).publicKey, "confirmed"));
           const reserve = await this.reserveFor(b.mint!, b.program);
           const now = lamports > reserve ? lamports - reserve - ((lamports - reserve) % 1_000n) : 0n;
-          if (o.minOut != null && now < amount) o.minOut = (o.minOut * now) / amount;
+          o.minOut = floor(now);
           amount = now;
         }
         return this.buyFrom(x.index!, b.mint!, amount, slip, !!b.auto, b.program, o);
@@ -3884,10 +4588,11 @@ class Engine {
       case "sell": {
         // what is still owed of its share (never more than the wallet holds); the least it may get shrinks with it
         const amount = owed ?? BigInt(x.amount);
-        const minOut = o.minOut != null ? (o.minOut * amount) / BigInt(x.amount) : undefined;
         return this.sell(x.index!, b.mint!, amount, slip, !!b.auto, {
           speed: o.speed,
-          minOut,
+          symbol: b.symbol,
+          guard,
+          minOut: floor(amount),
           // its swap is remembered as it goes out, so a try again first looks whether it landed
           onSwap: (sw) => {
             const cur = this.s.batch;
@@ -3955,7 +4660,38 @@ class Engine {
   }
 
   private waitMinutes(): number {
-    return Math.max(1, Math.round((Number(this.s.pool?.depositDelaySlots ?? 0) * 0.4) / 60));
+    return slotMinutes(Number(this.s.pool?.depositDelaySlots ?? 0), this.s.msPerSlot);
+  }
+
+  /** Minutes for `slots` at the measured slot time (rounded up with `ceil`, for time left), never less than one. */
+  slotMinutes(slots: number, ceil = false): number {
+    return slotMinutes(slots, this.s.msPerSlot, ceil);
+  }
+
+  private slotClock = new SlotClock();
+  /** a slot time from the network's own performance samples (preferred to this page's readings) */
+  private sampledMs: number | null = null;
+  private slotsAsked = false;
+
+  /** Asks the network once per page for its recent slot time (unless the server already gave one). */
+  private async measureSlots() {
+    if (this.slotsAsked || this.s.pool?.msPerSlot) return;
+    this.slotsAsked = true;
+    try {
+      const ms = msPerSlotFromSamples(await conn().getRecentPerformanceSamples(6));
+      if (ms) {
+        this.sampledMs = ms;
+        this.noteMsPerSlot(ms);
+      }
+    } catch {
+      // the page's own readings of the slot measure it shortly (see refreshWaiting)
+    }
+  }
+
+  private noteMsPerSlot(ms: number) {
+    saveMsPerSlot(ms);
+    const best = bestMsPerSlot(this.s.pool?.msPerSlot, ms);
+    if (Math.abs(best - this.s.msPerSlot) > 1) this.set({ msPerSlot: best });
   }
 
   /** How long a deposit waits in the waiting room, in words ("10 minutes"). */
@@ -3978,13 +4714,17 @@ class Engine {
     }
   }
 
-  /** A deposit's instructions, and its note's inner (hex, as the waiting room lists it). */
-  private async depositIxs(depositor: PublicKey, amount: bigint, att?: Attestation): Promise<{ ixs: TransactionInstruction[]; inner: string }> {
+  /**
+   * A deposit's instructions, and its note's inner (hex, as the waiting room lists it). Its compute
+   * limit and price are `shape`'s, drawn at random within the deposit band unless the caller drew
+   * them already (an address that must end at exactly zero works its fee out from them).
+   */
+  private async depositIxs(depositor: PublicKey, amount: bigint, att?: Attestation, shape: OwnShape = drawOwnShape("deposit")): Promise<{ ixs: TransactionInstruction[]; inner: string }> {
     const { keys, pool } = this.need();
     const nonce = randomNonce();
     const inner = noteInner(keys, nonce);
     const meta = encodeMeta(keys, nonce, amount);
-    const ixs: TransactionInstruction[] = [...computeBudget(DEPOSIT_CU, OWN_PRICE)];
+    const ixs: TransactionInstruction[] = [...budgetOf(shape)];
     let expiry = 0n;
     if (pool.requireAttestation) {
       const a = att ?? (await this.attestation(depositor));
@@ -4069,16 +4809,21 @@ class Engine {
             : "This wallet doesn't hold enough SOL to shield after fees.",
         );
       }
-      this.step("shield", "Checking your wallet against sanctions lists");
-      const { ixs } = await this.depositIxs(wallet.publicKey, amount);
-      const tx = new Transaction().add(...ixs);
-      tx.feePayer = wallet.publicKey;
-      tx.recentBlockhash = (await conn().getLatestBlockhash("confirmed")).blockhash;
-      this.step("shield", "Approve the deposit in your wallet");
-      const signed = await wallet.signTransaction(tx);
+      const { tx: signed, expiry } = await this.walletSigned(
+        wallet,
+        async (bh) => {
+          this.step("shield", "Checking your wallet against sanctions lists");
+          const { ixs } = await this.depositIxs(wallet.publicKey, amount);
+          const tx = new Transaction().add(...ixs);
+          tx.feePayer = wallet.publicKey;
+          tx.recentBlockhash = bh.blockhash;
+          return tx;
+        },
+        (again) => this.step("shield", again ? APPROVE_AGAIN : "Approve the deposit in your wallet"),
+      );
       this.step("shield", "Sending to Solana");
       const before = this.waitingFrom(wallet.publicKey.toBase58());
-      const sig = await sendAndConfirm(signed, "deposit");
+      const sig = await sendAndConfirm(signed, "deposit", expiry);
       this.log({ kind: "shield", text: `Shielded ${fmt(amount)} SOL`, sig });
       this.step("shield", "Into the waiting room");
       await Promise.all([this.awaitWaiting(wallet.publicKey.toBase58(), before), this.refreshPublic()]);
@@ -4096,15 +4841,32 @@ class Engine {
   // ─── payments straight from the wallet (see walletpay.ts) ───
 
   /**
-   * The deposit that pays `amount` from the wallet (exactly what the payment spends), or why it
-   * can't: under the pool's smallest deposit, or over the most one deposit can be right now.
+   * The deposit that pays `amount` from the wallet: the smallest standard size that covers what the
+   * payment spends and leaves some change (see walletpay.ts), with that change; or, when it doesn't
+   * fit the pool's limits, the most one payment from the wallet can be right now.
    */
   walletPayDeposit(amount: bigint) {
     const pool = this.s.pool;
     const max = BigInt(pool?.maxDeposit ?? 0);
     const room = pool?.tvlRoom != null ? BigInt(pool.tvlRoom) : null;
-    return walletDeposit(amount, { withdrawOf: (a) => this.quotePay(a).withdraw, min: BigInt(pool?.minDeposit ?? 0), max: room != null && room < max ? room : max });
+    return walletDeposit(amount, this.walletSizing(room != null && room < max ? room : max));
   }
+
+  /** How payments from the wallet are sized, for deposits of at most `max`. */
+  private walletSizing(max: bigint) {
+    return {
+      withdrawOf: (a: bigint) => this.quotePay(a).withdraw,
+      min: BigInt(this.s.pool?.minDeposit ?? 0),
+      max,
+      spare: (size: bigint) => maxChange(size, this.maxSpare),
+    };
+  }
+
+  /**
+   * Where "Max" puts its change for a payment from the wallet, between the least and 2.5% of the
+   * deposit (see maxChange): drawn at random once, and again after each payment from the wallet.
+   */
+  private maxSpare = secureRandom();
 
   /** The most a payment from a note of `note` lamports can deliver at today's fees. */
   payoutOf(note: bigint): bigint {
@@ -4117,15 +4879,20 @@ class Engine {
     return most < BigInt(p.amount) ? most : BigInt(p.amount);
   }
 
-  /** The most one payment from the connected wallet can deliver: what it can shield, less the payment's own fees. Null until known. */
+  /**
+   * The most one payment from the connected wallet can deliver ("Max"): from the largest standard
+   * size it can deposit, less the payment's own fees and a small random change that stays private.
+   * Null until known.
+   */
   walletPayMax(): bigint | null {
     const most = this.maxShield();
-    return most == null ? null : this.payoutOf(most);
+    return most == null ? null : (walletMost(this.walletSizing(most))?.most ?? 0n);
   }
 
   /**
-   * Pays an outside address straight from the connected wallet: one deposit of exactly what the
-   * payment spends, sent on by this page once it joins the private balance (see runWalletPays).
+   * Pays an outside address straight from the connected wallet: one deposit of a standard size that
+   * covers the payment, sent on by this page once it joins the private balance (see runWalletPays);
+   * the rest of the deposit stays in the private balance as change.
    * Every check runs before the wallet is asked, and the payment is kept on this device before the
    * wallet signs, so a page closed at any point picks it up again the next time it opens here.
    */
@@ -4155,64 +4922,80 @@ class Engine {
       if (part.amount < rentMin) throw new Error(`The smallest private send is ${fmtUp(rentMin, 5)} SOL.`);
       await this.readTreasury();
       const sized = this.walletPayDeposit(part.amount);
-      if ("problem" in sized) {
-        throw new Error(
-          sized.problem === "small"
-            ? `The smallest payment from your wallet is ${fmtUp(sized.least, 6)} SOL.`
-            : `The most one payment from your wallet can be right now is ${fmtDown(sized.most, 6)} SOL.`,
-        );
-      }
+      if ("problem" in sized) throw new Error(`That's more than one payment from your wallet can be right now.${sized.most > 0n ? ` Try ${fmtDown(sized.most, 6)} SOL or less.` : ""}`);
+      // a standard size, never the payment's own amount: what the payment doesn't spend stays private as change
       const D = sized.deposit;
+      const change = sized.change;
       // checked against what the wallet holds this second (see shield)
       const have = BigInt(await conn().getBalance(wallet.publicKey, "confirmed"));
       this.set({ publicLamports: have });
       if (this.shieldCost(D) + this.walletKeep() > have) {
         const most = this.walletPayMax() ?? 0n;
         throw new Error(
-          most >= rentMin ? `That's more than this wallet holds after fees. The most it can send right now is ${fmtDown(most, 6)} SOL.` : "This wallet doesn't hold enough SOL for that after fees.",
+          most >= rentMin
+            ? `That takes a standard deposit of ${fmt(D, 9)} SOL, more than this wallet holds after fees. Try ${fmtDown(most, 6)} SOL or less.`
+            : "This wallet doesn't hold enough SOL for that after fees.",
         );
       }
-      this.step("send", "Checking your wallet against sanctions lists");
-      const { ixs, inner } = await this.depositIxs(wallet.publicKey, D);
-      const tx = new Transaction().add(...ixs);
-      tx.feePayer = wallet.publicKey;
-      const bh = await conn().getLatestBlockhash("confirmed");
-      tx.recentBlockhash = bh.blockhash;
-      // kept before the wallet signs: once the deposit may land, this device knows what it is for
-      id = hex(crypto.getRandomValues(new Uint8Array(12)));
-      this.paying = id;
-      this.savePays([
-        {
-          id,
-          created: Date.now(),
-          to: part.to,
-          amount: part.amount.toString(),
-          when,
-          ...(part.offCurveOk ? { offCurveOk: true } : {}),
-          ...(part.lookalikeOk ? { lookalikeOk: true } : {}),
-          depositor: owner,
-          inner,
-          D: D.toString(),
-          lvh: bh.lastValidBlockHeight,
-          status: "paying",
+      // (a holder, so the id set while building is seen after the wallet answers)
+      const rec: { id: string | null } = { id: null };
+      const { tx: signed, expiry } = await this.walletSigned(
+        wallet,
+        async (bh) => {
+          this.step("send", "Checking your wallet against sanctions lists");
+          const { ixs, inner } = await this.depositIxs(wallet.publicKey, D);
+          const tx = new Transaction().add(...ixs);
+          tx.feePayer = wallet.publicKey;
+          tx.recentBlockhash = bh.blockhash;
+          // kept before the wallet signs: once the deposit may land, this device knows what it is for (a second
+          // approval, after the first one's blockhash ran out unsent, is a new deposit, and its record says so)
+          if (rec.id) this.patchPay(rec.id, { inner, lvh: bh.lastValidBlockHeight });
+          else {
+            rec.id = hex(crypto.getRandomValues(new Uint8Array(12)));
+            id = rec.id;
+            this.paying = rec.id;
+            this.savePays([
+              {
+                id: rec.id,
+                created: Date.now(),
+                to: part.to,
+                amount: part.amount.toString(),
+                when,
+                ...(part.offCurveOk ? { offCurveOk: true } : {}),
+                ...(part.lookalikeOk ? { lookalikeOk: true } : {}),
+                depositor: owner,
+                inner,
+                D: D.toString(),
+                lvh: bh.lastValidBlockHeight,
+                status: "paying",
+              },
+              ...this.s.pays,
+            ]);
+          }
+          return tx;
         },
-        ...this.s.pays,
-      ]);
-      this.step("send", "Approve the payment in your wallet");
-      const signed = await wallet.signTransaction(tx);
-      this.patchPay(id, { sig: signatureOf(signed) });
+        (again) => this.step("send", again ? APPROVE_AGAIN : "Approve the payment in your wallet"),
+      );
+      const payId = rec.id;
+      if (!payId) throw new Error("The payment wasn't kept on this device, so nothing was sent.");
+      this.patchPay(payId, { sig: signatureOf(signed) });
       this.step("send", "Sending to Solana");
       const before = this.waitingFrom(owner);
-      const sig = await sendAndConfirm(signed, "deposit");
-      this.patchPay(id, { status: "waiting" }, ["paying"]);
+      const sig = await sendAndConfirm(signed, "deposit", expiry);
+      this.patchPay(payId, { status: "waiting" }, ["paying"]);
       id = null;
+      // the next "Max" leaves a change of its own
+      this.maxSpare = secureRandom();
       this.log({ kind: "shield", text: `Deposited ${fmt(D)} SOL from your wallet for a private payment to ${shortAddr(part.to)}`, sig });
       this.step("send", "Into the waiting room");
       await Promise.all([this.awaitWaiting(owner, before), this.refreshPublic()]);
+      const rest = ` The rest of the deposit, ${fmt(change, 6)} SOL, stays in your private balance.`;
       // the instruction first: on a phone the end of a long message is cut off
       this.done(
         "Paid from your wallet",
-        `Keep this page open for about ${this.waitLabel()}, until it says Handed to the relayer. Then ${fmt(part.amount)} SOL goes to ${shortAddr(part.to)} ${when === "now" ? "by itself" : `at a random moment within ${WINDOW_LABEL[when]}`}.`,
+        when === "now"
+          ? `Keep this page open for about ${this.waitLabel()}, until it says Handed to the relayer. Then ${fmt(part.amount)} SOL goes to ${shortAddr(part.to)} by itself.${rest}`
+          : `Keep this page open until it says Handed to the relayer. It joins your private balance in about ${this.waitLabel()}, then ${fmt(part.amount)} SOL goes to ${shortAddr(part.to)} at a random moment within ${WINDOW_LABEL[when]}.${rest}`,
         sig,
       );
       return sig;
@@ -4305,7 +5088,8 @@ class Engine {
       for (const s of sigs) {
         if (s.err) continue;
         const tx = await conn().getTransaction(s.signature, { maxSupportedTransactionVersion: 1, commitment: "confirmed" });
-        for (const e of eventsFromLogs(tx?.meta?.logMessages ?? [], program)) if (e.kind === "refunded" && e.inner === inner) return e.byGuard ? "returned" : "refunded";
+        // only this deposit's own refund counts (same depositor and amount, after it was made): never another one with the same inner
+        for (const e of eventsFromLogs(tx?.meta?.logMessages ?? [], program)) if (e.kind === "refunded" && refundIsOurs(e, p, tx?.blockTime)) return e.byGuard ? "returned" : "refunded";
       }
     } catch {
       /* asked again later */
@@ -4474,10 +5258,33 @@ class Engine {
     /** runs just before the proof goes to the relayer: from then on the payment may land */
     onRelay?: () => void,
   ): Promise<Paid> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.proveAndPayoutOnce(kind, inputs, dest, withdraw, relayerFee, outputs, onRelay);
+      } catch (e) {
+        // the pool moved on while the proof was being made, past the roots the program keeps: that proof can
+        // never land and nothing was spent, so a fresh one is made against the newest state, twice at most (VS-16)
+        if (!rootMoved(e) || attempt >= 2) throw e;
+        this.step(kind, "The pool moved on", "Making a fresh proof against its newest state. Nothing was spent.");
+        await this.sync().catch(() => {});
+      }
+    }
+  }
+
+  private async proveAndPayoutOnce(
+    kind: Activity["kind"],
+    inputs: OwnedNote[],
+    dest: Dest,
+    withdraw: bigint,
+    relayerFee: bigint,
+    outputs?: [bigint, bigint],
+    onRelay?: () => void,
+  ): Promise<Paid> {
     const { pool } = this.need();
     if (!pool.relayer) throw new Error("No relayer is available right now. You can send it yourself below.");
     if (dest.kind === "pay") this.deliveryGate();
-    const p = await this.prove(kind, inputs, dest, withdraw, relayerFee, pool.relayer, outputs, false, true);
+    // it goes out now: the newest root (its root then shows only the moment it was made, about when it lands)
+    const p = await this.prove(kind, inputs, dest, withdraw, relayerFee, pool.relayer, outputs);
     if (dest.kind !== "pay") {
       this.step(kind, "Handing it to the relayer", "Your wallet does not appear in this transaction.");
       onRelay?.();
@@ -4486,8 +5293,16 @@ class Engine {
       return { sig: res.signature, tx1: res.signature };
     }
     const hop = p.hop!;
-    // written down before anything is sent: a delivery cut short is finished from here, on this device
-    const leg: HopLeg = { hop: hop.publicKey.toBase58(), out0: p.r.commitments[0], to: dest.to.toBase58(), amount: dest.amount.toString(), status: "proved", at: Date.now() };
+    // written down before anything is sent: a delivery cut short is finished from here, on this device (in its own shape)
+    const leg: HopLeg = {
+      hop: hop.publicKey.toBase58(),
+      out0: p.r.commitments[0],
+      to: dest.to.toBase58(),
+      amount: dest.amount.toString(),
+      status: "proved",
+      at: Date.now(),
+      ...(dest.shape ? { shape: shapeJson(dest.shape) } : {}),
+    };
     this.saveLeg(leg);
     let res: RelayAnswer | undefined;
     let handed = false;
@@ -4506,8 +5321,14 @@ class Engine {
         }
       }
     } catch (e) {
-      // this proof never goes (refused, or never handed over, with nothing spent): its sending address needs no looking after
-      if (!handed || nothingSpent(e)) this.dropLeg(leg.hop);
+      // never handed over, or naming a root the program doesn't hold: this proof can never go, so its sending address needs no looking after
+      if (!handed || rootMoved(e)) this.dropLeg(leg.hop);
+      else if (nothingSpent(e) && !(e instanceof NotesHeld)) {
+        // handed over and not sent: whoever holds it could still send it while its root lasts (VS-31). Its sending
+        // address is still looked at now and then, and the same payment made again spends these very notes
+        this.patchLeg(leg.hop, { dropped: true });
+        this.noteDroppedProof(dest, inputs, p.r.root, e);
+      }
       throw e;
     }
     const sent: HopLeg = { ...leg, status: "sent", ...(res.signature ? { tx1: res.signature } : {}) };
@@ -4516,10 +5337,76 @@ class Engine {
     // the delivery check sends one shape only: it never finishes the delivery itself (that would be an L1)
     const finish = !dest.only;
     let tx2 = await this.deliver(sent, res, finish);
-    await this.afterSpend(kind, inputs, res.signature, p.r.commitments, withdraw);
+    await this.afterSpend(kind, inputs, res.signature, p.r.commitments, withdraw).catch((e) => {
+      // the network dropped it: the relayer's key could still send it while its root lasts (VS-31)
+      if (nothingSpent(e)) {
+        this.patchLeg(leg.hop, { dropped: true });
+        this.noteDroppedProof(dest, inputs, p.r.root, e);
+      }
+      throw e;
+    });
     // the pool payment was only confirmed just now: its delivery is looked at once more
     if (!tx2) tx2 = await this.finishLeg(this.legs().find((l) => l.hop === leg.hop) ?? sent, true, finish).catch(() => null);
     return { sig: tx2 ?? "", tx1: res.signature, hop: leg.hop };
+  }
+
+  // ─── proofs handed over that didn't go (VS-31, see dropped.ts) ───
+
+  private droppedKey() {
+    return `vs:dropped:${this.s.fingerprint}`;
+  }
+
+  /** The dropped proofs that can still land, by what this device knows: notes unspent, root not known gone. */
+  private droppedList(): DroppedProof[] {
+    if (!this.s.fingerprint) return [];
+    const live = new Set(this.s.notes.map((n) => nfHex(n.nullifier)));
+    const ring = this.lastRing;
+    const rootLive = (root: string) => (ring ? ring.has(root.toLowerCase()) : null);
+    const list = ls.get<DroppedProof[]>(this.droppedKey(), []);
+    const kept = pruneDropped(list, live, rootLive, Date.now());
+    if (kept.length !== list.length) ls.set(this.droppedKey(), kept);
+    return kept;
+  }
+
+  /** A payment to an outside address whose proof was handed over and didn't go: kept, so the same payment made again spends the same notes. */
+  private noteDroppedProof(dest: Dest, inputs: OwnedNote[], root: string, e: unknown) {
+    if (dest.kind !== "pay" || !this.s.fingerprint) return;
+    const d: DroppedProof = {
+      to: dest.to.toBase58(),
+      amount: dest.amount.toString(),
+      nfs: inputs.map((n) => nfHex(n.nullifier)),
+      root,
+      at: Date.now(),
+      ...(dest.shape ? { shape: shapeJson(dest.shape) } : {}),
+    };
+    ls.set(this.droppedKey(), noteDropped(ls.get<DroppedProof[]>(this.droppedKey(), []), d, Date.now()));
+    // said with the refusal: a second try can't pay twice
+    if (e instanceof Error && /nothing was spent/i.test(e.message) && !e.message.includes(DROPPED_TEXT)) e.message = `${e.message.trimEnd()} ${DROPPED_TEXT}`;
+  }
+
+  /** A cancelled scheduled payment to an outside address whose proof the relayer held: kept like a dropped one (see noteDroppedProof). */
+  private noteCancelledProof(j: Job) {
+    const root = String((j.request as { root?: unknown } | undefined)?.root ?? "").toLowerCase();
+    if (!j.hop || !/^[0-9a-f]{64}$/.test(root) || !j.nullifiers?.length || !this.s.fingerprint) return;
+    const d: DroppedProof = { to: j.to, amount: j.amount, nfs: j.nullifiers, root, at: Date.now(), ...(j.shape ? { shape: j.shape } : {}) };
+    ls.set(this.droppedKey(), noteDropped(ls.get<DroppedProof[]>(this.droppedKey(), []), d, Date.now()));
+  }
+
+  /** The dropped proof a payment of `amount` to `to` must reuse the notes of, if any. */
+  private droppedFor(to: string, amount: bigint): DroppedProof | null {
+    return droppedFor(this.droppedList(), to, amount, new Set(this.s.notes.map((n) => nfHex(n.nullifier))), Date.now());
+  }
+
+  /** That proof's notes, from fresh data, when they are all still free and cover `withdraw`; null otherwise (the payment then picks as usual). */
+  private async droppedNotes(d: DroppedProof, withdraw: bigint): Promise<OwnedNote[] | null> {
+    this.step("send", "Checking the pool");
+    await this.sync();
+    await this.checkRoot().catch(() => null);
+    const free = this.freeNotes();
+    const notes = d.nfs.map((nf) => free.find((n) => nfHex(n.nullifier) === nf));
+    if (notes.some((n) => !n)) return null;
+    const pick = notes as OwnedNote[];
+    return pick.reduce((s, n) => s + n.amount, 0n) >= withdraw ? pick : null;
   }
 
   /** Hands a spend's body to the relayer; one that may still land keeps its notes out of the balance until the chain says. */
@@ -4645,18 +5532,19 @@ class Engine {
   private async signInstant(kind: Activity["kind"], request: RelayRequestBody, dest: PayDest, hop: Keypair) {
     const to = dest.to.toBase58();
     const amount = dest.amount.toString();
-    const extra = dest.offCurveOk ? { offCurveOk: true } : {};
+    // the shape it is signed in goes with it, so the relayer builds exactly the transfer the hop signed (VS-34)
+    const extra = { ...(dest.offCurveOk ? { offCurveOk: true } : {}), ...(dest.shape ? { shape: shapeJson(dest.shape) } : {}) };
     // a spare nonce only when N2 may be used (the L1 check asks for none, so it never holds one for nothing)
     const prep = await this.prepare(kind, { v: 2, request, delivery: { to, amount, mode: "instant", ...extra, ...(dest.only === "l1" ? { spare: false } : {}) } });
     const nonce = prep.nonce && prep.leaseId && dest.only !== "l1" && (await this.nonceChecked(prep.nonce)) ? prep.nonce : null;
     if (dest.only === "n2" && !nonce) throw new Error("No durable nonce is free on the relayer right now, so this N2 check can't run. Nothing was spent. Try again in a minute.");
-    const l1 = dest.only === "n2" || !prep.blockhash ? null : l1Sig(hop, dest.to, dest.amount, prep.blockhash);
+    const l1 = dest.only === "n2" || !prep.blockhash ? null : l1Sig(hop, dest.to, dest.amount, prep.blockhash, dest.shape);
     if (!l1 && !nonce) throw new Error("The relayer couldn't take this right now. Nothing was spent. Please try again.");
     return {
       to,
       amount,
       ...(l1 ? { blockhash: prep.blockhash, l1 } : {}),
-      ...(nonce ? { leaseId: prep.leaseId, n2: n2Sig(hop, dest.to, dest.amount, nonce) } : {}),
+      ...(nonce ? { leaseId: prep.leaseId, n2: n2Sig(hop, dest.to, dest.amount, nonce, dest.shape) } : {}),
       ...extra,
     };
   }
@@ -4665,12 +5553,12 @@ class Engine {
   private async signScheduled(request: RelayRequestBody, dest: PayDest, hop: Keypair, id: string, token: string) {
     const to = dest.to.toBase58();
     const amount = dest.amount.toString();
-    const extra = dest.offCurveOk ? { offCurveOk: true } : {};
+    const extra = { ...(dest.offCurveOk ? { offCurveOk: true } : {}), ...(dest.shape ? { shape: shapeJson(dest.shape) } : {}) };
     const prep = await this.prepare("send", { v: 2, request, delivery: { to, amount, mode: "scheduled", ...extra }, jobId: id, token });
     if (!prep.nonce || !prep.leaseId || !(await this.nonceChecked(prep.nonce))) {
       throw new Error("The relayer's details for sending later didn't check out, so nothing was scheduled. Please try again in a moment.");
     }
-    return { to, amount, leaseId: prep.leaseId, n2: n2Sig(hop, dest.to, dest.amount, prep.nonce), ...extra };
+    return { to, amount, leaseId: prep.leaseId, n2: n2Sig(hop, dest.to, dest.amount, prep.nonce, dest.shape), ...extra };
   }
 
   /**
@@ -4809,18 +5697,21 @@ class Engine {
     // and when its history can't be read, nothing is sent on a guess (however the finish was started)
     const by = finishing ? await this.deliveredFrom(kp.publicKey, { to: to.toBase58() }) : null;
     const leg = this.legs().find((l) => l.hop === kp.publicKey.toBase58());
-    const gate = finishGate(by, finishing, BigInt(bal), leg ? BigInt(leg.amount) : undefined);
+    // a delivery finished here goes in its own shape, so the recipient gets exactly its amount (VS-34); anything else in the fixed one
+    const shape = finishing && leg?.to === to.toBase58() ? shapeOf(leg.shape) : undefined;
+    const dfee = shape?.fee ?? DELIVERY_FEE;
+    const gate = finishGate(by, finishing, BigInt(bal), leg ? BigInt(leg.amount) : undefined, dfee);
     if ("delivered" in gate) return gate.delivered;
     if ("refuse" in gate) throw new Error(gate.refuse);
-    const f = finishAmount(BigInt(bal), rent.wallet);
+    const f = finishAmount(BigInt(bal), rent.wallet, dfee);
     if ("problem" in f) {
       if (f.problem === "too-small") {
-        throw new Error(`This sending address holds ${fmt(BigInt(bal), 6)} SOL. A standard transfer from it needs at least ${fmtUp(rent.wallet + DELIVERY_FEE, 6)} SOL, so move it into your private balance instead.`);
+        throw new Error(`This sending address holds ${fmt(BigInt(bal), 6)} SOL. A standard transfer from it needs at least ${fmtUp(rent.wallet + dfee, 6)} SOL, so move it into your private balance instead.`);
       }
       throw new Error("There's nothing left to send at this sending address.");
     }
     const bh = await conn().getLatestBlockhash("confirmed");
-    const tx = VersionedTransaction.deserialize(finishTransaction(kp, to, f.lamports, bh.blockhash));
+    const tx = VersionedTransaction.deserialize(finishTransaction(kp, to, f.lamports, bh.blockhash, shape));
     try {
       return await sendAndConfirm(tx, "delivery", { lastValidBlockHeight: bh.lastValidBlockHeight });
     } catch (e) {
@@ -4905,6 +5796,11 @@ class Engine {
    * creates (so every proof gets its own, and the app can always find it again); for one of this
    * account's wallets, that wallet signs the spend's notes. `quiet` makes it in the background,
    * without showing progress.
+   *
+   * The root it names (see rootpolicy.ts in the SDK): a spend that goes out now proves against the
+   * newest one. A proof held for later passes its own `lag` (drawRootLag, never worked out from its
+   * notes) and names the root that many leaves back; its notes must be old enough for every lag, or
+   * it throws NotMature and nothing is proved (it never takes the newest root instead).
    */
   private async prove(
     kind: Activity["kind"],
@@ -4915,14 +5811,23 @@ class Engine {
     relayer: string,
     outputs?: [bigint, bigint],
     quiet = false,
-    older = false,
+    lag?: number,
   ) {
     const { keys, pool } = this.need();
     const say = (step: string, detail?: string) => (quiet ? undefined : this.step(kind, step, detail));
     if (dest.kind === "fee" && withdraw !== relayerFee) throw new Error("Those amounts don't add up.");
+    // a fee above the app's own ceiling is never sealed into a proof, whatever the server says
+    if (relayerFee > MAX_RELAYER_FEE || relayerFee < 0n) throw new Error("The relayer's fee is higher than this app allows, so nothing was sent. Please try again later.");
+    await this.checkPoolOnChain();
+    this.poolGate();
     say("Checking the pool");
     const ring = await this.checkRoot();
-    const size = older ? this.olderSize(ring, inputs) : undefined;
+    let size: number | undefined;
+    if (lag !== undefined) {
+      const at = heldRootSize(this.workerSize, inputs, lag);
+      if ("wait" in at) throw new NotMature(at.wait);
+      size = at.size;
+    }
     // that check can refresh the notes; never prove with one that is gone or already spent
     const live = new Set(this.s.notes.map((n) => `${n.index}:${n.nullifier}`));
     if (!inputs.every((n) => live.has(`${n.index}:${n.nullifier}`))) {
@@ -4990,19 +5895,15 @@ class Engine {
     if (hop) this.hopOf.set(out0, hop.publicKey.toBase58());
     return { r, request, hop, own };
   }
-  /**
-   * For a payment that goes out at once: a random one of the recent pool roots that already holds
-   * its notes, so the proof doesn't show the exact moment it was made. The root stays well inside
-   * the pool's list (at most 96 back), so it can't age out while the payment is sent.
-   */
-  private olderSize(ring: { roots: bigint[]; rootIndex: number }, inputs: OwnedNote[]): number | undefined {
-    const size = this.workerSize;
-    const at = ring.roots.indexOf(this.lastWorkerRoot);
-    if (at < 0 || !size) return undefined;
-    const age = (ring.rootIndex - at + 256) % 256;
-    const lowest = Math.max(1, ...inputs.map((n) => n.index + 1), size - Math.max(0, 96 - age));
-    if (lowest >= size) return undefined;
-    return randInt(lowest, size);
+  /** Whether every note of `inputs` is old enough for a proof held for later (see prove), by this device's copy of the pool. */
+  private matureNow(inputs: OwnedNote[]): boolean {
+    return inputs.length > 0 && inputs.every((n) => isMature(n.index, this.workerSize));
+  }
+
+  /** How many more notes must join the pool before `inputs` are old enough for a proof held for later. */
+  private leavesToMature(inputs: OwnedNote[]): number {
+    const at = inputs.length ? heldRootSize(this.workerSize, inputs, 0) : { size: 0 };
+    return "wait" in at ? at.wait : 0;
   }
 
   /**
@@ -5081,8 +5982,17 @@ class Engine {
     await this.checkRoot();
     // joins only start when they're sure to make the spend fit, so none is paid for nothing
     for (let done = 0; ; done++) {
-      const pick = selectInputs(this.freeNotes(), withdraw);
-      if (pick) return pick;
+      const free = this.freeNotes();
+      // never a note a Vision wallet of this account's swept back lately on its own, for an amount close to its
+      // own, while another note can do instead (VS-12)
+      const pick = avoidLoneSwept(selectInputs(free, withdraw), free, sweptLeaves(this.ownDeposits(), Date.now()), withdraw, selectInputs);
+      // one note covers it: the smallest other free note rides along as the second input (a spend always
+      // proves two), so it looks the same on-chain and the balance holds one note fewer. Never the note a
+      // payment from the wallet is still waiting to spend (that payment would then find it gone)
+      if (pick) {
+        const pinned = new Set(this.s.pays.filter(holdsItsNote).map((p) => this.payLeaf(p)));
+        return padInputs(pick, free.filter((n) => !pinned.has(n.leaf)));
+      }
       const plan = this.mergePlan(withdraw, joinFee);
       if (!plan.ok || done >= MAX_MERGES) {
         throw new Error(
@@ -5091,7 +6001,11 @@ class Engine {
             : "Not enough private balance for that amount, including fees.",
         );
       }
-      this.step(kind, `Joining your balance (${done + 1} of ${done + plan.merges})`, "Your private balance is in several pieces. Each step joins two, privately inside the pool.");
+      this.step(
+        kind,
+        `Joining your balance (${done + 1} of ${done + plan.merges})`,
+        "Your private balance is in several pieces. Each step joins two of them in a pool transaction, which anyone can see on the chain (your wallet isn't part of it).",
+      );
       await merge();
     }
   }
@@ -5117,11 +6031,28 @@ class Engine {
     }
   }
 
+  /** Recipients of "Send all" that passed the full check lately, and when (in memory only). */
+  private sendAllPassed = new Map<string, number>();
+
+  /**
+   * Before "Send all" from a Vision wallet or a deposit address (P0-3): the recipient gets the same full
+   * check as a payment sent without the relayer (the published list here first, then the server's
+   * screening), and no answer means no transfer. A pass is reused for 10 minutes, so a batch paying one
+   * address from several wallets asks once. The chain gateway checks the transfer against the list again.
+   */
+  private async checkSendAll(to: string) {
+    const at = this.sendAllPassed.get(to);
+    if (at && Date.now() - at < 10 * 60_000 && screenList.listed(to) !== true) return;
+    await this.checkRecipients([{ to, amount: 0n, offCurveOk: true, lookalikeOk: true }], false, true);
+    this.sendAllPassed.set(to, Date.now());
+  }
+
   /**
    * Checks a send's recipients before anything moves. Without the network: each must be an address
    * this app may pay (not the pool's or the relayer's own, nor one of this account's sending
    * addresses), and one that looks like an earlier recipient but isn't, or that only a program can
-   * sign for, is confirmed by the sender first. Then the server is asked: the sanctions list, and what
+   * sign for, is confirmed by the sender first; an address on the published sanctions list is refused
+   * here at once (screenlist.ts). Then the server is asked: the sanctions list, and what
    * is at each address (a token account or a program can't receive SOL here). Later payments are
    * checked against the local list only, and a single later one isn't looked up at all (that would
    * show it before it goes): each gets the full check when it goes out. For payments the relayer
@@ -5145,11 +6076,23 @@ class Engine {
       }
       if (!p.offCurveOk && offCurve(p.to)) throw new NeedsConfirm({ kind: "off-curve", address: p.to, text: OFF_CURVE_TEXT });
     }
+    // the published sanctions list, checked here first (nothing is sent for it): a listed address is told at once
+    for (const [i, p] of parts.entries()) {
+      if (outside[i] && screenList.listed(p.to) === true) {
+        throw new Error(parts.length > 1 ? `Payment ${i + 1} (${shortAddr(p.to)}): ${LISTED_RECIPIENT.replace("This address", "this address")}` : LISTED_RECIPIENT);
+      }
+    }
     if (later && parts.length === 1 && !strict) return [null];
+    // only outside addresses are asked about: this account's own wallets need no check, and naming them beside the
+    // others would show the server which wallets belong to the sender (VS-40)
+    const asked = parts.flatMap((_, i) => (outside[i] ? [i] : []));
+    if (!asked.length) return parts.map(() => null);
     let res: { address: string; ok: boolean; reason?: string; class?: RecipientClass | null; verdict?: string | null }[];
     try {
       // the relayer screens a payment it sends fully when it sends it: only one sent without it is fully screened here
-      res = await api("/api/relay/check", { json: { v: 2, recipients: parts.map((p) => p.to), later, full: strict } });
+      const got: typeof res = await api("/api/relay/check", { json: { v: 2, recipients: asked.map((i) => parts[i].to), later, full: strict } });
+      res = parts.map((p, i) => (outside[i] ? got[asked.indexOf(i)] : { address: p.to, ok: true }));
+      if (res.some((x) => !x)) throw new Error("bad answer");
     } catch (e) {
       if (e instanceof ApiError) this.refusal(e);
       if (!strict) return parts.map(() => null);
@@ -5184,6 +6127,7 @@ class Engine {
       onPart?.(i, o);
     };
     let current = -1;
+    const ripe0 = this.ripened;
     try {
       // (a payment from the wallet sent by itself leaves any question the form is asking alone)
       if (!this.bgTask) this.set({ ask: null });
@@ -5200,7 +6144,7 @@ class Engine {
       const kinds = await this.checkRecipients(parts, later);
       const rentMin = BigInt(await conn().getMinimumBalanceForRentExemption(0));
       await this.readTreasury();
-      const plans: { to: PublicKey; q: ReturnType<Engine["quoteSend"]>; dest: Dest }[] = [];
+      const plans: { to: PublicKey; q: ReturnType<Engine["quoteSend"]>; dest: Dest; again: DroppedProof | null }[] = [];
       for (const [i, p] of parts.entries()) {
         const to = new PublicKey(p.to);
         // a fresh wallet that something else used meanwhile (another device of this account, say) would tie the two together
@@ -5209,15 +6153,20 @@ class Engine {
         // the one-time sending address pays its own fee and must keep nothing or the rent minimum once that is
         // taken, and what it keeps then is the amount: so the amount is at least the rent minimum, for any recipient
         if (!own && p.amount < rentMin) throw new Error(`The smallest private send is ${fmtUp(rentMin, 5)} SOL${parts.length > 1 ? ` (${shortAddr(p.to)})` : ""}.`);
-        const q = own ? this.quoteSend(p.amount) : this.quotePay(p.amount);
+        // the same payment made again after a proof of it didn't go through: it spends that proof's notes, in its shape (VS-31)
+        const again = window === null && pin == null ? this.droppedFor(p.to, p.amount) : null;
+        // its delivery's own shape (VS-34): the one the form showed, then a fresh one for the next; a payment from the
+        // wallet keeps within its deposit's note
+        const shape = own ? undefined : again ? shapeOf(again.shape) : pin != null ? this.shapeWithin(p.amount, this.s.notes.find((nt) => nt.leaf === pin)?.amount ?? null) : this.takeShape();
+        const q = own ? this.quoteSend(p.amount) : this.quotePay(p.amount, this.relayerFee(), shape ?? null);
         // a later payment isn't looked up now (that would show it before it goes): it just has to be big enough to open any address
         const k = kinds[i];
         const exists = later ? false : k ? k !== "new" && k !== "new-off-curve" : (await conn().getBalance(to, "confirmed")) > 0;
         if (!exists && q.toRecipient < rentMin) throw new Error(`A new address needs at least ${fmt(rentMin)} SOL to exist (${shortAddr(p.to)}).`);
         const dest: Dest = own
           ? { kind: "own", kp: own }
-          : { kind: "pay", to, amount: q.toRecipient, mode: window === null ? "instant" : "scheduled", ...(p.offCurveOk ? { offCurveOk: true } : {}) };
-        plans.push({ to, q, dest });
+          : { kind: "pay", to, amount: q.toRecipient, mode: window === null ? "instant" : "scheduled", ...(p.offCurveOk ? { offCurveOk: true } : {}), ...(shape ? { shape } : {}) };
+        plans.push({ to, q, dest, again });
       }
       const total = plans.reduce((s, x) => s + x.q.withdraw, 0n);
       // this account's own Vision wallets among them: listed as soon as they're paid, and named in what's said after
@@ -5227,24 +6176,37 @@ class Engine {
       if (pin == null && (await this.stillShort(() => total > this.spendable()))) throw new Error("Not enough private balance for these payments, including fees.");
       if (window === null) {
         let last: Paid | null = null;
-        for (const [i, { to, q, dest }] of plans.entries()) {
+        for (const [i, { to, q, dest, again }] of plans.entries()) {
           current = i;
           if (n > 1) this.step("send", `Payment ${i + 1} of ${n}`);
+          const vi = mine[i];
+          // to one of this account's Vision wallets: from the moment its notes are spent until the wallet is read, the
+          // payment counts as landing there (jobsInFlight), so the total never dips while it is on its way
+          const onRelay = (inputs: OwnedNote[]) => (vi == null ? undefined : () => this.notePaying(vi, q.toRecipient, inputs));
           try {
-            const paid =
-              pin != null
-                ? await this.proveAndPayout("send", await this.pinnedNote(pin, q.withdraw), dest, q.withdraw, q.relayerFee).catch((e) => {
+            // made again after a proof of it didn't go through: the very notes that proof spends, so only one can land (VS-31)
+            const pinned = again ? await this.droppedNotes(again, q.withdraw) : null;
+            const pinnedOne = pin != null ? await this.pinnedNote(pin, q.withdraw) : null;
+            const paid = pinned
+              ? await this.proveAndPayout("send", pinned, dest, q.withdraw, q.relayerFee, undefined, onRelay(pinned))
+              : pinnedOne
+                ? await this.proveAndPayout("send", pinnedOne, dest, q.withdraw, q.relayerFee, undefined, onRelay(pinnedOne)).catch((e) => {
                     throw e instanceof NotesHeld ? new PinnedNote("unsure") : e;
                   })
-                : await this.withInputs("send", q.withdraw, (inputs) => this.proveAndPayout("send", inputs, dest, q.withdraw, q.relayerFee));
+                : await this.withInputs("send", q.withdraw, (inputs) => this.proveAndPayout("send", inputs, dest, q.withdraw, q.relayerFee, undefined, onRelay(inputs)));
             last = paid;
             mark(i, "sent");
             this.logSent({ kind: "send", text: `Sent ${fmt(q.toRecipient)} SOL to ${this.addressName(to.toBase58())}`, sig: paid.sig || undefined, ...(paid.hop ? { delivery: { hop: paid.hop, to: to.toBase58() } } : {}) });
-            // a Vision wallet of this account's is read straight away, so it's listed under Wallets at once
-            const vi = mine[i];
-            if (vi != null) await this.refreshVision([vi]).catch(() => {});
+            // a Vision wallet of this account's is read straight away, so it's listed under Wallets at once (and from
+            // this moment a read of it shows the payment: it stops counting as landing then)
+            if (vi != null) {
+              this.landedPaying(vi);
+              await this.refreshVision([vi]).catch(() => {});
+            }
           } catch (e) {
             if (e instanceof MaybeSent) mark(i, "checking");
+            // (one that may still land keeps counting as landing while its notes stay out of the balance)
+            else if (vi != null) this.payingVision.delete(vi);
             throw e;
           }
         }
@@ -5276,7 +6238,7 @@ class Engine {
               plans.map((x) => x.q.withdraw),
               exact,
             );
-      for (let i = 0, held = 0; i < n; ) {
+      for (let i = 0, held = 0, moved = 0; i < n; ) {
         const { q, dest } = plans[i];
         current = i;
         this.step("send", n > 1 ? `Scheduling payment ${i + 1} of ${n}` : "Scheduling your payment");
@@ -5284,6 +6246,11 @@ class Engine {
           mark(i, await this.scheduleOne(assigned[i], dest, q, window));
           i++;
         } catch (e) {
+          // the pool moved on while its proof was being made: nothing was scheduled, and a fresh proof is made (VS-16)
+          if (rootMoved(e) && ++moved <= 2) {
+            this.step("send", "The pool moved on", "Making a fresh proof against its newest state. Nothing was spent.");
+            continue;
+          }
           // a pinned note held elsewhere (another tab or device of this account handed it over): never another note
           if (pin != null && e instanceof NotesHeld) throw new PinnedNote("unsure");
           // those notes belong to a payment scheduled on another device (set aside now): the rest get other notes
@@ -5302,6 +6269,11 @@ class Engine {
       // (the ones cancelled meanwhile aren't going anywhere)
       const ownGoing = mine.filter((x, i): x is number => x != null && outcomes[i] !== "cancelled");
       const own = ownGoing.length ? ownPaidText(ownGoing, false) : "";
+      // payments whose notes were too new to prove for later: they wait here for the pool to move on
+      const ripe = Math.min(going, this.ripened - ripe0);
+      const ripeText = !ripe
+        ? ""
+        : ` ${ripe === going ? (going > 1 ? "Their notes are" : "Its notes are") : `${ripe} of them use notes that are`} new, so ${ripe > 1 ? "they are" : "it is"} handed to the relayer once more notes have joined the pool, or, if that hasn't happened by ${ripe > 1 ? "their own random moments" : "its own random moment"} in the window, sent then like a payment sent now. Keep VisionSwap open until ${ripe > 1 ? "they show" : "it shows"} Scheduled under Scheduled payments; if you close it sooner, ${ripe > 1 ? "they carry" : "it carries"} on the next time you open VisionSwap on this device.`;
       this.done(
         window === "2m" ? (going > 1 ? `${going} payments on their way` : "Payment on its way") : going > 1 ? `${going} payments scheduled` : "Payment scheduled",
         (window === "2m"
@@ -5311,11 +6283,14 @@ class Engine {
           : `${going > 1 ? "Each one goes" : "It goes"} out at a random moment within the next ${WINDOW_LABEL[window]}.`) +
           (cancelled ? ` The ${cancelled > 1 ? `${cancelled} you cancelled` : "one you cancelled"} won't go out.` : "") +
           (own ? ` ${own}` : "") +
+          ripeText +
           (unsure
             ? ` ${unsure === n ? (n > 1 ? "They" : "It") : `${unsure} of them`} may not have reached the relayer yet: keep this page open a moment so the app can hand ${unsure > 1 ? "them" : "it"} over again.`
-            : window === "2m"
-              ? " You can close this page."
-              : " You can close this page, or cancel under Scheduled payments."),
+            : ripe
+              ? ""
+              : window === "2m"
+                ? " You can close this page."
+                : " You can close this page, or cancel under Scheduled payments."),
         undefined,
         !!own,
       );
@@ -5362,7 +6337,7 @@ class Engine {
 
   /**
    * Gives each later payment notes of its own: a note is cut into one of exactly the amount needed
-   * and the rest, or two are joined (each a private self-transfer inside the pool), until every
+   * and the rest, or two are joined (each a pool transaction paying only the relayer's fee), until every
    * payment has one. Never more steps than the plan worked out before the first one (and one to
    * spare): if the balance changes under it, it stops rather than paying on. Returns the notes for
    * each payment, in order.
@@ -5374,6 +6349,8 @@ class Engine {
     const short = "Not enough private balance for these payments, including fees.";
     let spent = 0;
     let allowed = -1;
+    // payments sent later: each cut or join after the first waits a random moment first (see PREP_GAP_MS)
+    let rested = true;
     for (let round = 0; round < prepRounds(needs.length); round++) {
       await this.sync();
       // the cut just made may not show its new notes yet: they're waited for before the balance counts as short
@@ -5395,8 +6372,17 @@ class Engine {
       if (st.kind === "ready") return st.picks.map((id) => [note(id)]);
       if (st.kind === "short") throw new Error(short);
       if (spent >= allowed) throw new Error("Your private balance changed while the payments were being prepared. Nothing was scheduled; please try again.");
+      if (exact && !rested) {
+        // looked at afresh after the wait (this round doesn't count)
+        this.step("send", "Spacing out the next step", "Each step waits a random moment after the one before, so they don't run back to back. Keep this page open.");
+        await sleep(randInt(PREP_GAP_MS[0], PREP_GAP_MS[1]));
+        rested = true;
+        round--;
+        continue;
+      }
+      rested = false;
       try {
-        this.step("send", "Preparing separate notes", "One private transfer inside the pool per payment, so each can go out on its own.");
+        this.step("send", "Preparing separate notes", "One pool transaction per payment, so each can go out on its own. These show on the chain as pool transactions (your wallet isn't part of them).");
         if (st.kind === "cut") {
           const big = note(st.note);
           await this.proveAndPayout("send", [big], { kind: "fee" }, fee, fee, [st.need, big.amount - st.need - fee]);
@@ -5435,11 +6421,19 @@ class Engine {
     const keys = this.keys;
     const id = hex(crypto.getRandomValues(new Uint8Array(12)));
     const token = await this.jobToken(id);
-    // each payment proves against its own random recent root, so payments made together don't all name the same one
-    // (notes cut a moment ago have no older root yet: those get a fresh proof shortly before they go, see needsProof)
-    const p = await this.prove("send", inputs, dest, q.withdraw, q.relayerFee, pool.relayer!, undefined, false, true);
-    this.step("send", "Handing it to the relayer for later");
     const to = dest.kind === "pay" ? dest.to.toBase58() : dest.kind === "own" ? dest.kp.publicKey.toBase58() : pool.relayer!;
+    let p: Awaited<ReturnType<Engine["prove"]>>;
+    try {
+      // a proof held for later names a root its own random lag behind the newest, never one worked out from
+      // its notes: payments made together each name their own, and none points at the notes it spends
+      p = await this.prove("send", inputs, dest, q.withdraw, q.relayerFee, pool.relayer!, undefined, false, drawRootLag());
+    } catch (e) {
+      if (!(e instanceof NotMature)) throw e;
+      // its notes are too new for that (cut or paid in a moment ago): kept here, and proved and handed over
+      // once the pool has moved on (see refreshJob); it never names the newest root instead
+      return this.ripenJob(id, token, to, inputs, dest, q, window);
+    }
+    this.step("send", "Handing it to the relayer for later");
     const body = await this.handOverBody(p.request, dest, p.hop, p.own, window, id, token);
     const job: Job = {
       id,
@@ -5457,8 +6451,19 @@ class Engine {
       ...(p.hop ? { hop: p.hop.publicKey.toBase58() } : {}),
       ...(p.own ? { own: p.own } : {}),
       ...(dest.kind === "pay" && dest.offCurveOk ? { offCurveOk: true } : {}),
+      ...(dest.kind === "pay" && dest.shape ? { shape: shapeJson(dest.shape) } : {}),
     };
-    if (p.hop) this.saveLeg({ hop: p.hop.publicKey.toBase58(), out0: p.request.commitments[0], to, amount: q.toRecipient.toString(), status: "proved", at: Date.now(), job: id });
+    if (p.hop)
+      this.saveLeg({
+        hop: p.hop.publicKey.toBase58(),
+        out0: p.request.commitments[0],
+        to,
+        amount: q.toRecipient.toString(),
+        status: "proved",
+        at: Date.now(),
+        job: id,
+        ...(dest.kind === "pay" && dest.shape ? { shape: shapeJson(dest.shape) } : {}),
+      });
     // kept before it is handed over: if the answer is lost, the next look hands it over again under the same id
     this.saveJobs([job, ...this.s.jobs]);
     let res: { latest?: number } | null;
@@ -5520,6 +6525,49 @@ class Engine {
     if (res?.latest) this.saveJobs(patchJob(this.s.jobs, id, { latest: res.latest }));
     this.log({ kind: "send", text: `Scheduled ${fmt(q.toRecipient)} SOL to ${this.nameWith(job.to, `within ${WINDOW_LABEL[window]}`)}` });
     return res ? "scheduled" : "checking";
+  }
+
+  /** Scheduled payments kept here until their notes are old enough (see ripenJob); counted so sendMany can say so. */
+  private ripened = 0;
+
+  /**
+   * A scheduled payment whose notes are too new for a proof held for later: written down here as one
+   * still to be proved (status "stale", `ripening`), holding its notes. While the app is open,
+   * refreshJob proves it for later (its own lag) and hands it over as soon as the pool has moved on far
+   * enough, under the same id and deadline; if its own moment `goAt` (drawn at random over its window)
+   * comes first, it is proved against the newest root and sent at once, like any payment sent now (see
+   * needsProof). It can't go out while this page is closed until it has been handed over.
+   */
+  private ripenJob(id: string, token: string, to: string, inputs: OwnedNote[], dest: Dest, q: ReturnType<Engine["quoteSend"]>, window: Window): PartOutcome {
+    const created = Date.now();
+    const latest = created + WINDOW_MS[window];
+    const job: Job = {
+      id,
+      token,
+      to,
+      amount: q.toRecipient.toString(),
+      withdraw: q.withdraw.toString(),
+      window,
+      created,
+      latest,
+      nullifiers: inputs.map((nt) => nfHex(nt.nullifier)),
+      status: "stale",
+      ripening: true,
+      goAt: drawGoAt(created, latest),
+      ...(dest.kind === "pay" && dest.offCurveOk ? { offCurveOk: true } : {}),
+      ...(dest.kind === "pay" && dest.shape ? { shape: shapeJson(dest.shape) } : {}),
+    };
+    this.saveJobs([job, ...this.s.jobs]);
+    this.ripened++;
+    this.log({ kind: "send", text: `Scheduled ${fmt(q.toRecipient)} SOL to ${this.nameWith(to, `within ${WINDOW_LABEL[window]}, once the pool has moved on`)}` });
+    return "scheduled";
+  }
+
+  /** For a scheduled payment still waiting for its notes to be old enough: how many more notes must join the pool first (null when it isn't one). */
+  ripeIn(j: Job): number | null {
+    if (!j.ripening || j.status !== "stale") return null;
+    const inputs = this.s.notes.filter((nt) => j.nullifiers.includes(nfHex(nt.nullifier)));
+    return inputs.length === j.nullifiers.length ? this.leavesToMature(inputs) : null;
   }
 
   /**
@@ -5653,6 +6701,90 @@ class Engine {
     return out;
   }
 
+  /**
+   * Scheduled payments as the total counts them: `index` is the Vision wallet of this account it pays
+   * (null: someone else); `held`: its notes are still unspent in `balance` (counted there); `landing`:
+   * it went out and its wallet hasn't been read since. A live payment with no nullifiers yet counts as held.
+   */
+  jobsInFlight(): { index: number | null; amount: bigint; latest: number; held: boolean; landing: boolean }[] {
+    const unspent = new Set(this.s.notes.map((n) => nfHex(n.nullifier)));
+    const out: { index: number | null; amount: bigint; latest: number; held: boolean; landing: boolean }[] = [];
+    for (const j of this.s.jobs) {
+      const live = isLive(j.status);
+      const i = this.visionIndexOf(j.to);
+      const landing = j.status === "sent" && i != null && Date.now() - (this.landedAt.get(i) ?? 0) < 120_000;
+      if (!live && !landing) continue;
+      const held = live ? j.nullifiers.length === 0 || j.nullifiers.some((nf) => unspent.has(nf)) : j.nullifiers.some((nf) => unspent.has(nf));
+      out.push({ index: i, amount: BigInt(j.amount), latest: j.latest, held, landing });
+    }
+    // a payment sent now to one of these wallets: while its notes are still in the balance it's counted there; once
+    // they're spent, as landing until its wallet shows it (five minutes at most, as long as spent notes stay hidden)
+    const shown = new Map(this.s.vision.map((v) => [v.index, v.lamports]));
+    for (const [index, x] of this.payingVision) {
+      if (!payingLands(x, shown.get(index) ?? 0n, unspent, Date.now())) continue;
+      out.push({ index, amount: x.amount, latest: x.since, held: false, landing: true });
+    }
+    return out;
+  }
+
+  // ─── SOL moving between two of this account's own places: the total never dips, and never counts it twice ───
+
+  /**
+   * What each Vision wallet or deposit address moved into the pool since it was last read, deposit by deposit
+   * (`at`: when it landed). It still shows that SOL until it's read again, so the total counts the deposit
+   * there and leaves it out of the waiting room meanwhile (see portfolio.ts). A read made after it landed ends it.
+   */
+  private moved = { vision: new Map<number, { amount: bigint; at: number }[]>(), deposit: new Map<number, { amount: bigint; at: number }[]>() };
+  /** Vision wallets moving their SOL into the pool right now (how many moves): a read meanwhile never shows less. */
+  private sweeping = new Map<number, number>();
+  /**
+   * Payments sent now to one of this account's Vision wallets, by wallet, from the moment they're handed to the
+   * relayer until the wallet is read after they landed (`at`, Infinity until then): see jobsInFlight, and
+   * refreshVision for a read that shows one in its wallet while its notes are still in the balance.
+   */
+  private payingVision = new Map<number, Paying>();
+
+  private noteMoved(kind: "vision" | "deposit", index: number, amount: bigint) {
+    const m = this.moved[kind];
+    m.set(index, [...(m.get(index) ?? []), { amount, at: Date.now() }]);
+  }
+
+  /** A read of that wallet or address that started at `started`: what it moved before then shows in it now. */
+  private readAfter(kind: "vision" | "deposit", index: number, started: number) {
+    const m = this.moved[kind];
+    const left = (m.get(index) ?? []).filter((x) => x.at > started);
+    if (left.length) m.set(index, left);
+    else m.delete(index);
+    const x = kind === "vision" ? this.payingVision.get(index) : undefined;
+    if (x && (x.at <= started || Date.now() - x.since > PAYING_MS)) this.payingVision.delete(index);
+  }
+
+  private notePaying(index: number, amount: bigint, inputs: OwnedNote[]) {
+    const base = this.s.vision.find((v) => v.index === index)?.lamports ?? 0n;
+    this.payingVision.set(index, { amount, nfs: inputs.map((n) => nfHex(n.nullifier)), since: Date.now(), at: Infinity, base });
+  }
+
+  /** The payment to that wallet has landed: a read from now on shows it. */
+  private landedPaying(index: number) {
+    const x = this.payingVision.get(index);
+    if (x) this.payingVision.set(index, { ...x, at: Date.now() });
+  }
+
+  /** The amounts each Vision wallet and deposit address moved into the pool and still shows (not read since): see portfolio.ts. */
+  movedIn(): { vision: Map<number, bigint[]>; deposit: Map<number, bigint[]> } {
+    // (half an hour at most: a wallet not read again by then is read on the next unlock)
+    const now = Date.now();
+    const of = (m: Map<number, { amount: bigint; at: number }[]>) => {
+      const out = new Map<number, bigint[]>();
+      for (const [i, xs] of m) {
+        const left = xs.filter((x) => now - x.at < 30 * 60_000).map((x) => x.amount);
+        if (left.length) out.set(i, left);
+      }
+      return out;
+    };
+    return { vision: of(this.moved.vision), deposit: of(this.moved.deposit) };
+  }
+
   /** Changes one job as it is now, only while it is still in one of `from` (a cancel is never undone). */
   private patchJobs(id: string, patch: Partial<Job>, from: readonly JobStatus[] = ["scheduled", "sending", "stale", "delivering", "waiting"]) {
     this.saveJobs(patchJob(this.s.jobs, id, patch, from));
@@ -5672,22 +6804,55 @@ class Engine {
     }
   }
 
-  /** What the relayer says about these scheduled payments, asked in the body so the ids never sit in a URL. */
-  private jobReplies(ids: string[]): Promise<JobReply[]> {
-    return api<JobReply[]>("/api/relay/jobs/status", { json: { ids } });
+  /** How finely the server cuts its status boards, as last heard (see statusboard.ts). */
+  private jobBoard: BoardMemo = { chars: 0 };
+  private orderBoard: BoardMemo = { chars: 0 };
+  /** The server has no status board (an older one): the app asks by ids, as before. */
+  private noJobBoard = false;
+  private noOrderBoard = false;
+
+  /**
+   * What the relayer says about these scheduled payments. From the status board (VS-40): the request
+   * names no payment, and the answer holds everyone's entries in the buckets asked for, each sealed to
+   * its own token, so polls don't show which payments belong together. An older server is asked by
+   * ids, in the body so they never sit in a URL.
+   */
+  private async jobReplies(ids: string[]): Promise<JobReply[]> {
+    const items = ids.flatMap((id) => {
+      const token = this.s.jobs.find((j) => j.id === id)?.token;
+      return token ? [{ id, token }] : [];
+    });
+    if (!this.noJobBoard && items.length === ids.length) {
+      try {
+        return await askBoard<JobReply>(
+          items,
+          this.jobBoard,
+          (buckets, epoch) => api<BoardAnswer>("/api/relay/jobs/board", { json: { buckets, epoch } }),
+          (id) => ({ id, status: "unknown", signature: null, error: null }),
+        );
+      } catch (e) {
+        if (!noBoard(e)) throw e;
+        this.noJobBoard = true;
+      }
+    }
+    const out: JobReply[] = [];
+    for (const part of chunk(ids, 50)) out.push(...(await api<JobReply[]>("/api/relay/jobs/status", { json: { ids: part } })));
+    return out;
   }
 
   private async pollJobsOnce() {
     const keys = this.keys;
     const groups = pollGroups(this.s.jobs);
-    if (!groups.length) return;
+    if (!groups.length) {
+      // (payments still waiting for their notes to be old enough aren't at the relayer yet: they get their proofs here)
+      void this.refreshJobs();
+      return;
+    }
     const replies: JobReply[] = [];
-    for (const ids of groups) {
-      try {
-        replies.push(...(await this.jobReplies(ids)));
-      } catch {
-        break;
-      }
+    try {
+      replies.push(...(await this.jobReplies(groups.flat())));
+    } catch {
+      /* asked again next time */
     }
     if (this.keys !== keys || !replies.length) return;
     // a sending address the relayer names is taken only when it is the job's own
@@ -5700,6 +6865,9 @@ class Engine {
     }
     if (JSON.stringify(m.list) !== JSON.stringify(this.s.jobs)) this.saveJobs(m.list);
     let changed = m.changed.length > 0;
+    // held proofs whose root the pool has moved past (a flush of the pool's root list, VS-16) get fresh ones now
+    if (await this.staleByRing(keys)) changed = true;
+    if (this.keys !== keys) return;
     // "sent" is said only once its notes are seen spent on-chain too
     for (const id of m.sent) {
       const j = this.s.jobs.find((x) => x.id === id);
@@ -5734,7 +6902,7 @@ class Engine {
           changed = true;
           continue;
         }
-        if (by === null && BigInt(bal) >= (this.s.rent?.wallet ?? 0n) + DELIVERY_FEE) {
+        if (by === null && BigInt(bal) >= (this.s.rent?.wallet ?? 0n) + feeOfShape(j.shape)) {
           // finished from here (see finishJobs)
           this.patchJobs(id, { status: "waiting" });
           changed = true;
@@ -5778,6 +6946,26 @@ class Engine {
   }
 
   /**
+   * Scheduled payments whose held proof names a root the pool has moved past (VS-16: a burst of pool
+   * transactions can push a root out of the program's list of recent ones): such a proof can never
+   * land, so the job is marked for a fresh one, which the open app makes next. The pool's roots are
+   * read at most once a minute, and only a read made after a proof counts against it. Says whether any changed.
+   */
+  private async staleByRing(keys: Keys | null): Promise<boolean> {
+    const held = this.s.jobs.filter((j) => j.status === "scheduled" && j.request);
+    if (!held.length) return false;
+    const ring = await this.ringNow(60_000);
+    if (!ring || this.keys !== keys) return false;
+    let changed = false;
+    for (const j of held) {
+      if (!rootGone(j, ring, this.lastRingAt)) continue;
+      this.patchJobs(j.id, { status: "stale", note: ROOT_MOVED_NOTE, nextTry: undefined }, ["scheduled"]);
+      changed = true;
+    }
+    return changed;
+  }
+
+  /**
    * A job the relayer doesn't hold: if its notes are unspent it is handed back under the same id,
    * keeping its deadline. If they are spent, the chain says whether it went (see settleSpentJob).
    */
@@ -5789,6 +6977,12 @@ class Engine {
     if (went === null) return; // can't tell right now: asked again next time
     if (went) return this.settleSpentJob(j);
     if (!j.request) return this.patchJobs(j.id, { status: "stale" });
+    // the pool's roots are read first: a proof whose root the pool has moved past can never land, so it gets a
+    // fresh one instead of being handed back as it is (VS-16)
+    const ring = await this.ringNow(0);
+    if (this.keys !== keys) return;
+    const root = String((j.request as RelayRequestBody).root ?? "").toLowerCase();
+    if (ring && root && !ring.has(root)) return this.patchJobs(j.id, { status: "stale", note: ROOT_MOVED_NOTE });
     const now = Date.now();
     const window: Window = j.latest > now + 2 * 60_000 ? j.window : "15m";
     try {
@@ -5808,7 +7002,8 @@ class Engine {
   /** A scheduled payment's recipient as a Dest: a wallet of this account's own, or an outside address (delivered). */
   private jobDest(j: Job, amount = BigInt(j.amount)): Dest {
     const own = this.ownKeypairFor(j.to);
-    return own ? { kind: "own", kp: own } : { kind: "pay", to: new PublicKey(j.to), amount, mode: "scheduled", ...(j.offCurveOk ? { offCurveOk: true } : {}) };
+    const shape = shapeOf(j.shape);
+    return own ? { kind: "own", kp: own } : { kind: "pay", to: new PublicKey(j.to), amount, mode: "scheduled", ...(j.offCurveOk ? { offCurveOk: true } : {}), ...(shape ? { shape } : {}) };
   }
 
   /** What a scheduled payment is handed over with: its proof, with the hop's signed N2 (an outside address) or its own wallet's signature. */
@@ -5962,12 +7157,14 @@ class Engine {
       // a delivery is signed for one exact amount, so its proof must make the hop's credit exactly that, at today's fee
       if (fee < cost) fee = this.relayerFee();
       await this.readTreasury();
+      // its delivery's own fee (the shape it was made in, VS-34)
+      const dfee = feeOfShape(j.shape);
       const credit = predictCredit(withdraw, fee, this.feeBps(), this.treasury?.view);
-      if (credit > amount + DELIVERY_FEE) {
+      if (credit > amount + dfee) {
         // a lower fee (or a treasury that can't take one): a little less leaves the balance, the recipient gets the same
-        withdraw = deliveryWithdraw(amount, fee, this.feeBps(), this.treasury?.view);
-      } else if (credit < amount + DELIVERY_FEE) {
-        const now2 = credit - DELIVERY_FEE;
+        withdraw = deliveryWithdraw(amount, fee, this.feeBps(), this.treasury?.view, dfee);
+      } else if (credit < amount + dfee) {
+        const now2 = credit - dfee;
         if (now2 < BigInt(this.s.rent?.wallet ?? 890_880n)) return later("the pool fee changed and the amount is now too small");
         // the recipient would get less: only once the owner says so
         if (!accept) return this.patchJobs(j.id, { confirm: { amount: now2.toString() } });
@@ -5981,20 +7178,49 @@ class Engine {
       amount = now2;
     }
     const dest = this.jobDest(j, amount);
-    // a fresh proof for timing names a random recent root too (as scheduling did), so payments made together
-    // don't all move onto the newest one; one that went stale or is running out of roots takes the newest, for the longest life
-    const p = await this.prove("send", inputs, dest, withdraw, fee, pool.relayer, undefined, true, why === "timing");
+    // a fresh proof for timing is made as it goes out: the newest root, like any spend sent now. Any other is held
+    // for later again: its own random lag behind the newest, and only once its notes are old enough for every lag
+    const held = why !== "timing";
+    const notYet = () => {
+      // not a failed try: looked at again in a minute (it is never proved against the newest root instead), or
+      // as soon as its own moment comes, for one still waiting here for its notes (see needsProof)
+      const again = Date.now() + 60_000;
+      this.patchJobs(j.id, { nextTry: j.ripening ? Math.min(again, goAtOf(j)) : again });
+      if (accept) throw new Error("Its notes are still new, so it can't be handed over yet. It goes by itself once the pool has moved on, while VisionSwap is open.");
+    };
+    if (held && !this.matureNow(inputs)) return notYet();
+    let p: Awaited<ReturnType<Engine["prove"]>>;
+    try {
+      p = await this.prove("send", inputs, dest, withdraw, fee, pool.relayer, undefined, true, held ? drawRootLag() : undefined);
+    } catch (e) {
+      if (e instanceof NotMature) return notYet();
+      throw e;
+    }
     const request = p.request;
     // a proof made for an account that has since closed is never handed over: the earlier one stays there
     if (this.keys !== keys) return;
     // remembered before it is handed over: if the answer is lost, this proof may be the one that goes
     const prior = j.outs ?? (j.request as { commitments?: string[] } | undefined)?.commitments ?? [];
     this.patchJobs(j.id, { outs: [...prior, ...request.commitments].slice(-40) });
-    if (p.hop) this.saveLeg({ hop: p.hop.publicKey.toBase58(), out0: request.commitments[0], to: j.to, amount: amount.toString(), status: "proved", at: Date.now(), job: j.id });
-    const window: Window = j.latest > now + 2 * 60_000 ? j.window : "15m";
+    if (p.hop)
+      this.saveLeg({
+        hop: p.hop.publicKey.toBase58(),
+        out0: request.commitments[0],
+        to: j.to,
+        amount: amount.toString(),
+        status: "proved",
+        at: Date.now(),
+        job: j.id,
+        ...(j.shape ? { shape: j.shape } : {}),
+      });
+    // one that waited here for its notes and whose moment came (or that is due) goes as soon as it can, like a
+    // payment sent now: within two minutes of now, never the rest of its window (its proof names the newest root)
+    const goNow = !!j.ripening && why === "timing";
+    const window: Window = !goNow && j.latest > now + 2 * 60_000 ? j.window : j.ripening && (pool.sendLater ?? []).includes("2m") ? "2m" : "15m";
+    const until = goNow ? now + WINDOW_MS["2m"] : j.latest > now ? j.latest : undefined;
     let res: { id: string; token: string; latest: number };
     try {
-      const body = await this.handOverBody(request, dest, p.hop, p.own, window, j.id, j.token, j.latest > now ? j.latest : undefined);
+      const body = await this.handOverBody(request, dest, p.hop, p.own, window, j.id, j.token, until);
       res = await api("/api/relay/schedule", { json: body });
     } catch (e) {
       if (this.keys !== keys) return;
@@ -6027,6 +7253,8 @@ class Engine {
         confirm: null,
         hop: p.hop?.publicKey.toBase58(),
         own: p.own ?? undefined,
+        ripening: undefined,
+        goAt: undefined,
       },
       keys,
     );
@@ -6073,6 +7301,12 @@ class Engine {
     try {
       // marked here first, so a fresh proof or a hand-back finishing meanwhile can't bring it back
       this.patchJobs(id, { status: "cancelled" });
+      // one still waiting here for its notes never reached the relayer: cancelled here, and that's all (while its
+      // proof is being made, the relayer is asked too, as for any other)
+      if (j.ripening && j.status === "stale" && !j.confirm && this.s.refreshingJob !== id) {
+        this.say({ notice: { title: "Cancelled", text: `The payment of ${fmt(BigInt(j.amount))} SOL to ${this.addressName(j.to)} won't go out. That SOL is spendable again.` } });
+        return;
+      }
       let r: { status: Job["status"] | "unknown" };
       try {
         r = await api<{ status: Job["status"] | "unknown" }>("/api/relay/cancel", { json: { id: j.id, token: j.token } });
@@ -6086,6 +7320,9 @@ class Engine {
         this.patchJobs(id, { status: r.status === "sent" ? "sending" : (r.status as JobStatus) }, ["cancelled"]);
         throw new Error("It's already going out, so it can't be cancelled.");
       }
+      // the relayer held its proof, which stays valid while its root is in the pool's list: the same payment made
+      // again spends these very notes, so only one of the two can ever land (VS-31)
+      this.noteCancelledProof(j);
       if (r.status === "unknown") {
         // it may still be on its way there (or the relayer is still reading its list back in): asked again until it's sure
         this.patchJobs(id, { cancelPending: true }, ["cancelled"]);
@@ -6255,7 +7492,7 @@ class Engine {
     const kp = this.visionKeypair(index);
     const have = BigInt(await conn().getBalance(kp.publicKey, "confirmed"));
     if (have < needs) await this.topUpVision(index, kind, needs - have);
-    const tx = new Transaction().add(...computeBudget(CLEANUP_CU, OWN_PRICE), ...ixs);
+    const tx = new Transaction().add(...budgetOf(drawOwnShape("cleanup")), ...ixs);
     tx.feePayer = kp.publicKey;
     tx.recentBlockhash = (await conn().getLatestBlockhash("confirmed")).blockhash;
     tx.sign(kp);
@@ -6487,7 +7724,8 @@ class Engine {
       const lim = this.orderLimits();
       if (p.dca && p.sol / BigInt(p.dca.count) < BigInt(lim.minDcaBuyLamports)) throw new Error(`Each buy needs at least ${fmt(BigInt(lim.minDcaBuyLamports))} SOL: spend more, or make fewer buys.`);
       if (!p.dca && p.sol < BigInt(lim.minBuyLamports)) throw new Error(`Orders start at ${fmt(BigInt(lim.minBuyLamports))} SOL.`);
-      const reserve = visionReserve(p.program);
+      // the fee reserve and a random extra on top (VS-12): see buyReserve
+      const reserve = this.buyReserve(visionReserve(p.program), p.sol);
       const deliver = p.sol + reserve;
       const q = this.quoteSend(deliver);
       if (await this.stillShort(() => q.withdraw > this.spendable())) throw new Error("Not enough private balance for that, including fees.");
@@ -6724,7 +7962,7 @@ class Engine {
           : moved
             ? `The order can no longer spend its SOL, and the SOL from Vision wallet #${n} is in the waiting room. It joins your private balance in about ${this.waitLabel()}.`
             : home
-              ? `The order can no longer spend its SOL. It stays in Vision wallet #${n}: it's below the smallest deposit, so "Send to an address" in the Wallets tab can move it.`
+              ? `The order can no longer spend its SOL. It stays in Vision wallet #${n}: it's below the smallest deposit for now, and goes back with the rest once the wallet holds enough to "Move back to private balance".`
               : `The order can no longer spend its SOL. Tap "Get SOL back" under Orders, or "Move back to private balance" on Vision wallet #${n} in the Wallets tab, to bring it into your private balance.`,
       );
     } catch (e) {
@@ -7069,16 +8307,36 @@ class Engine {
     await this.tidyOrders();
   }
 
+  /** What the keeper says about these orders: from its status board (VS-40, see jobReplies), or by ids from an older server. */
+  private async orderReplies(live: Order[]): Promise<OrderReply[]> {
+    if (!this.noOrderBoard && live.every((o) => !!o.token)) {
+      try {
+        return await askBoard<OrderReply>(
+          live.map((o) => ({ id: o.id, token: o.token })),
+          this.orderBoard,
+          (buckets, epoch) => api<BoardAnswer>("/api/orders/board", { json: { buckets, epoch } }),
+          (id) => ({ id, status: "unknown" }) as OrderReply,
+        );
+      } catch (e) {
+        if (!noBoard(e)) throw e;
+        this.noOrderBoard = true;
+      }
+    }
+    const out: OrderReply[] = [];
+    for (const part of chunk(
+      live.map((o) => o.id),
+      200,
+    ))
+      out.push(...(await api<OrderReply[]>("/api/orders/status", { json: { ids: part } })));
+    return out;
+  }
+
   private async pollOrdersInner() {
     const live = this.s.orders.filter((o) => o.status === "active" || o.status === "pending" || o.settling);
     if (!live.length) return;
     const list: OrderReply[] = [];
     try {
-      for (const part of chunk(
-        live.map((o) => o.id),
-        200,
-      ))
-        list.push(...(await api<OrderReply[]>("/api/orders/status", { json: { ids: part } })));
+      list.push(...(await this.orderReplies(live)));
     } catch {
       // including "orders are still loading" after a server start: never handed back on that
       return;
@@ -7260,26 +8518,37 @@ class Engine {
   async feeWallets(): Promise<{ index: number; address: string; lamports: bigint; used: boolean }[]> {
     const keys = this.need().keys;
     let st = this.gasState();
-    try {
-      const seen: number[] = [];
-      const r = await gapScan(
-        st.next,
-        async (i) => {
-          const t = await this.gasTrace(gasWallet(keys, i).publicKey);
-          if (t === "funded") seen.push(i);
-          return t === "sent";
-        },
-        5,
-        2,
-      );
-      if (this.keys !== keys) return [];
+    // the ones that paid for a pool spend (on any device of this account) are in the pool's public address
+    // list: found there, in this browser, with no fee wallet asked about one by one (VS-21)
+    const list = await this.poolAddresses();
+    if (this.keys !== keys) return [];
+    if (list) {
+      const r = listScan(st.next, (i) => ((list.get(gasWallet(keys, i).publicKey.toBase58()) ?? 0) & ADDR_PAYER) !== 0, 5);
       st = this.gasState();
-      st = { ...st, next: Math.max(st.next, r.next), used: [...new Set([...st.used, ...r.found])], seen: [...new Set([...(st.seen ?? []), ...seen])] };
+      st = { ...st, next: Math.max(st.next, r.next), used: [...new Set([...st.used, ...r.found])], scanned: true };
       ls.set(this.gasKey(), st);
-    } catch (e) {
-      // the network couldn't be asked: a device that looked before goes on what it knows
-      if (!st.scanned && !st.used.length) throw e;
-    }
+    } else if (list === undefined)
+      try {
+        // an older server without the list: each one's history, as before
+        const seen: number[] = [];
+        const r = await gapScan(
+          st.next,
+          async (i) => {
+            const t = await this.gasTrace(gasWallet(keys, i).publicKey);
+            if (t === "funded") seen.push(i);
+            return t === "sent";
+          },
+          5,
+          2,
+        );
+        if (this.keys !== keys) return [];
+        st = this.gasState();
+        st = { ...st, next: Math.max(st.next, r.next), used: [...new Set([...st.used, ...r.found])], seen: [...new Set([...(st.seen ?? []), ...seen])] };
+        ls.set(this.gasKey(), st);
+      } catch (e) {
+        // the network couldn't be asked: a device that looked before goes on what it knows
+        if (!st.scanned && !st.used.length) throw e;
+      }
     const bal = { ...(st.bal ?? {}) };
     const used = st.used.filter((i) => i !== st.next);
     // fresh ones (the next, and any only funded) are read every time; of the used ones, only the one read longest ago
@@ -7299,7 +8568,8 @@ class Engine {
     const earlier = [...new Set([...st.used, ...(st.seen ?? [])])].filter((i) => i !== st.next).sort((a, b) => b - a);
     for (const i of [st.next, ...earlier.slice(0, 6)]) {
       const lamports = BigInt(bal[i]?.l ?? "0");
-      if (i === st.next || lamports > 0n) out.push({ index: i, address: gasWallet(keys, i).publicKey.toBase58(), lamports, used: st.used.includes(i) });
+      // (one that sent only joins, for a payment that then didn't go, can still send that payment)
+      if (i === st.next || lamports > 0n) out.push({ index: i, address: gasWallet(keys, i).publicKey.toBase58(), lamports, used: paidGas(st).includes(i) });
     }
     return out;
   }
@@ -7319,12 +8589,16 @@ class Engine {
     }
   }
 
-  private markGasUsed(i: number) {
+  private markGasUsed(i: number, joinOnly = false) {
     const st = this.gasState();
     // what it held before paying is out of date: it is the first used one read again
     const bal = { ...(st.bal ?? {}) };
     delete bal[i];
-    ls.set(this.gasKey(), { ...st, next: Math.max(st.next, i + 1), used: [...new Set([...st.used, i])], bal });
+    // a join only (never after a payment): it may still send the payment those joins were for; a payment ends that
+    const joined = new Set(st.joined ?? []);
+    if (!joinOnly) joined.delete(i);
+    else if (!st.used.includes(i) || joined.has(i)) joined.add(i);
+    ls.set(this.gasKey(), { ...st, next: Math.max(st.next, i + 1), used: [...new Set([...st.used, i])], joined: [...joined], bal });
   }
 
   /** What a payment's own fee payer must hold up front (it's paid back in the same transaction). */
@@ -7352,7 +8626,9 @@ class Engine {
       const rentMin = BigInt(await conn().getMinimumBalanceForRentExemption(0));
       // the one-time sending address pays its own fee, and must keep nothing or the rent minimum once that is taken (see sendMany)
       if (!own && amount < rentMin) throw new Error(`The smallest private send is ${fmtUp(rentMin, 5)} SOL.`);
-      const withdraw = own ? grossUp(amount, cost, this.feeBps()) : this.quotePay(amount, cost).withdraw;
+      // a payment to an outside address is delivered from here, in a shape of its own (VS-34)
+      const shape = own ? undefined : this.takeShape();
+      const withdraw = own ? grossUp(amount, cost, this.feeBps()) : this.quotePay(amount, cost, shape ?? null).withdraw;
       // joins, when needed, are sent by the same fee payer at the same cost each: an amount they can't make fit is refused before any is paid
       if (await this.stillShort(() => !this.mergePlan(withdraw, cost).ok)) {
         const most = this.maxSelfSendable();
@@ -7365,21 +8641,26 @@ class Engine {
       const k = kinds[0];
       const exists = k ? k !== "new" && k !== "new-off-curve" : (await conn().getBalance(to, "confirmed")) > 0;
       if (!exists && amount < rentMin) throw new Error(`A new address needs at least ${fmt(rentMin)} SOL to exist.`);
-      const kp = payer.kind === "vision" ? this.visionKeypair(payer.index) : gasWallet(keys, payer.index);
+      if (payer.kind !== "gas") throw new Error("Only a fee wallet of yours can send a payment itself.");
+      // a fee wallet that already sent a payment is never used for another one: both would show the same payer
+      if (paidGas(this.gasState()).includes(payer.index)) throw new Error("That fee wallet already sent a payment. Use a new one, so the two payments don't share a payer.");
+      const kp = gasWallet(keys, payer.index);
       // a fee wallet counts as used from the moment it sends anything, whatever comes of it, so it is never offered as new again
-      const used = payer.kind === "gas" ? () => this.markGasUsed(payer.index) : undefined;
+      // (one that sent only the joins, for a payment that then didn't go, may still send that payment: see paidGas)
+      const used = () => this.markGasUsed(payer.index);
+      const joined = () => this.markGasUsed(payer.index, true);
       const inputs = await this.inputsFor(
         "send",
         withdraw,
         async () => {
           const two = [...this.freeNotes()].sort((a, b) => (a.amount < b.amount ? 1 : -1)).slice(0, 2);
           if (two.length < 2) throw new Error("Not enough private balance.");
-          await this.selfTransact("merge", two, kp, { kind: "fee" }, cost, cost, used);
+          await this.selfTransact("merge", two, kp, { kind: "fee" }, cost, cost, joined);
           this.log({ kind: "merge", text: "Joined two notes yourself" });
         },
         cost,
       );
-      const dest: Dest = own ? { kind: "own", kp: own } : { kind: "pay", to, amount, mode: "self", ...(confirmed.offCurveOk ? { offCurveOk: true } : {}) };
+      const dest: Dest = own ? { kind: "own", kp: own } : { kind: "pay", to, amount, mode: "self", ...(confirmed.offCurveOk ? { offCurveOk: true } : {}), ...(shape ? { shape } : {}) };
       const paid = await this.selfTransact("send", inputs, kp, dest, withdraw, cost, used);
       this.log({ kind: "send", text: `Sent ${fmt(amount)} SOL to ${shortAddr(to.toBase58())} yourself`, sig: paid.sig || undefined, ...(paid.hop ? { delivery: { hop: paid.hop, to: to.toBase58() } } : {}) });
       this.done(
@@ -7421,7 +8702,8 @@ class Engine {
     if (have < cost + 1_000_000n) {
       throw new Error(`The fee payer needs at least ${fmtUp(cost + 1_000_000n, 4)} SOL to submit this (it gets the fee back in the same transaction). It holds ${fmt(have, 6)} SOL.`);
     }
-    const { r, hop, request } = await this.prove(kind, inputs, dest, withdraw, cost, kp.publicKey.toBase58(), undefined, false, true);
+    // it goes out now: the newest root
+    const { r, hop, request } = await this.prove(kind, inputs, dest, withdraw, cost, kp.publicKey.toBase58());
     // the recipient co-signs: the hop, one's own wallet, or (a join) the fee payer itself
     const cosigner = hop ?? (dest.kind === "own" ? dest.kp : null);
     const recipient = new PublicKey(request.recipient);
@@ -7435,13 +8717,23 @@ class Engine {
     };
     const ix = this.pool().transact(sp, new PublicKey(pool.treasury));
     if (cosigner) ix.keys[1].isSigner = true;
-    const tx = new Transaction().add(...computeBudget(TRANSACT_CU, 0), ix);
+    // the relayer's own price per compute unit (its fee, paid back by the proof, already covers it), so this looks like a relayed spend
+    const tx = new Transaction().add(...computeBudget(TRANSACT_CU, Math.max(0, Math.min(Number(pool.priorityMicroLamports ?? 0), 1_000_000))), ix);
     tx.feePayer = kp.publicKey;
     tx.recentBlockhash = (await conn().getLatestBlockhash("confirmed")).blockhash;
     tx.sign(...(cosigner ? [kp, cosigner] : [kp]));
     const leg: HopLeg | null =
       hop && dest.kind === "pay"
-        ? { hop: hop.publicKey.toBase58(), out0: r.commitments[0], to: dest.to.toBase58(), amount: dest.amount.toString(), status: "proved", at: Date.now(), self: true }
+        ? {
+            hop: hop.publicKey.toBase58(),
+            out0: r.commitments[0],
+            to: dest.to.toBase58(),
+            amount: dest.amount.toString(),
+            status: "proved",
+            at: Date.now(),
+            self: true,
+            ...(dest.shape ? { shape: shapeJson(dest.shape) } : {}),
+          }
         : null;
     // written down before it is sent: a delivery cut short is finished from here
     if (leg) this.saveLeg(leg);
@@ -7472,7 +8764,11 @@ class Engine {
     try {
       this.step("send", "Checking the pool");
       const kp = gasWallet(this.need().keys, index);
-      const q = this.quoteSend(amount);
+      // a little more than it needs, by an amount of its own (up to half again, to the lamport): fee wallets
+      // funded the same way would otherwise all hold the same telling figure
+      let q = this.quoteSend(amount + (amount * BigInt(randInt(0, 500_000))) / 1_000_000n);
+      // (a private balance that can't cover the extra sends just what's needed, as the form offered)
+      if (q.withdraw > this.spendable()) q = this.quoteSend(amount);
       const paid = await this.withInputs("send", q.withdraw, (inputs) => this.proveAndPayout("send", inputs, { kind: "own", kp }, q.withdraw, q.relayerFee));
       const who = shortAddr(kp.publicKey.toBase58());
       this.log({ kind: "send", text: `Funded fee wallet #${index + 1} (${who}) with ${fmt(q.toRecipient)} SOL`, sig: paid.sig });
@@ -7495,11 +8791,28 @@ class Engine {
   }
 
   /** Private balance -> fresh Vision wallet -> any token. */
+  /**
+   * What a new Vision wallet gets on top of a buy (VS-12): its fee reserve `base`, plus a random extra
+   * below half of it (drawExtraReserve) so the funding less the reserve doesn't read back the buy size
+   * typed. The extra is cut down to what the private balance can spare, and to what still fits the
+   * notes the buy would use as they are (never an extra join for it); all of it comes back when the
+   * wallet moves its SOL back into the pool.
+   */
+  private buyReserve(base: bigint, solAmount: bigint): bigint {
+    let extra = drawExtraReserve(base);
+    const room = this.maxSpend(base) - solAmount;
+    if (extra > room) extra = room > 0n ? room : 0n;
+    const free = this.freeNotes();
+    const fitsNow = (r: bigint) => !!selectInputs(free, this.quoteSend(solAmount + r).withdraw);
+    if (fitsNow(base)) for (let i = 0; i < 12 && extra > 0n && !fitsNow(base + extra); i++) extra /= 2n;
+    return base + extra;
+  }
+
   async buy(mint: string, solAmount: bigint, slippageBps: number, auto = false, program?: string | null, o: TradeOpts = {}) {
     try {
       this.step("buy", "Checking the pool");
       const speed = speedOf(o.speed);
-      const reserve = await this.reserveFor(mint, program);
+      const reserve = this.buyReserve(await this.reserveFor(mint, program), solAmount);
       const deliver = solAmount + reserve;
       const q = this.quoteSend(deliver);
       const short = () => {
@@ -7510,12 +8823,12 @@ class Engine {
       const idx = (await this.unusedVision(o.index)) ?? (await this.freshVisionIndex());
       o.onIndex?.(idx);
       const kp = this.visionKeypair(idx);
-      const p: SwapParams = { inputMint: WSOL, outputMint: mint, amount: solAmount, slippageBps, side: "buy", speed, minOut: o.minOut };
-      // the route first: when Jupiter is busy or the route can't work, nothing has been spent yet
+      const p: SwapParams = { inputMint: WSOL, outputMint: mint, amount: solAmount, slippageBps, side: "buy", speed, minOut: o.minOut, guard: o.guard, symbol: o.symbol };
+      // the route first: when Jupiter is busy, the route can't work or its price isn't what was approved, nothing has been spent yet
       this.step("buy", "Getting the best route from Jupiter");
       await this.precheckBuy(idx, p);
-      // remembered before the SOL can land, so even a closed tab comes back to "Finish the buy"
-      const intent: BuyIntent = { mint, amount: solAmount.toString(), slippageBps, auto, speed, at: Date.now() };
+      // remembered before the SOL can land, so even a closed tab comes back to "Finish the buy" (held to the same price)
+      const intent: BuyIntent = { mint, amount: solAmount.toString(), slippageBps, auto, speed, at: Date.now(), ...(o.guard ? { guard: saveGuard(o.guard) } : {}) };
       // notes a scheduled payment on another device holds are set aside and others picked (withInputs)
       const sig1 = await this.withInputs("buy", q.withdraw, async (inputs) => {
         try {
@@ -7537,7 +8850,7 @@ class Engine {
         await this.refreshVision([idx]);
         throw this.buyStopped(idx, e, deliver);
       }
-      await this.boughtDone(idx, r, solAmount);
+      await this.boughtDone(idx, r, solAmount, { symbol: o.symbol, fresh: true });
       return r.sig;
     } catch (e) {
       this.fail(e);
@@ -7573,7 +8886,7 @@ class Engine {
       }
       throw e;
     }
-    await this.checkedSwap(b, this.visionKeypair(index).publicKey, p);
+    await this.checkedSwap(b, this.visionKeypair(index).publicKey, p, index);
   }
 
   /** What to tell the person when a funded buy's swap didn't happen. */
@@ -7583,8 +8896,14 @@ class Engine {
       return new Error(`The swap is taking longer than usual. It may still go through: check Vision wallet #${n} and your activity in a minute before trying again.`);
     }
     if (isFinal(e)) return e as Error;
-    const moved = isPriceMoved(e);
     const it = this.buyIntent(index);
+    const hold = holdOf(e);
+    if (hold) {
+      // it stopped to ask before the swap: the SOL waits in the wallet for the person's choice
+      if (it) this.saveIntent(index, { ...it, why: "hold", hold });
+      return keepHold(e, new Error(`${hold.text} Your ${fmt(deliver)} SOL is safe in Vision wallet #${n}: use "Finish the buy" there when you're ready, or move it back into the pool.`));
+    }
+    const moved = isPriceMoved(e);
     if (it) this.saveIntent(index, { ...it, why: moved ? "price" : "other" });
     return new Error(
       moved
@@ -7593,16 +8912,19 @@ class Engine {
     );
   }
 
-  /** A buy that went through: tidy the wallet and say what arrived. */
-  private async boughtDone(index: number, r: SwapResult, sol: bigint) {
+  /**
+   * A buy that went through: tidy the wallet and say what arrived. `fresh`: the buy opened a new wallet
+   * (only then is it "a fresh address funded from the pool"; a buy with a funded wallet reuses it).
+   */
+  private async boughtDone(index: number, r: SwapResult, sol: bigint, o: { symbol?: string; fresh: boolean }) {
     this.clearIntent(index);
     this.log({ kind: "buy", text: `Bought with ${fmt(sol)} SOL in Vision wallet #${index + 1}`, sig: r.sig || undefined });
     await this.closeLeftovers(index);
     await this.refreshVision([index]);
-    const got = r.got != null && r.got > 0n && r.decimals != null ? `${formatUnits(r.got, r.decimals, 6)} tokens arrived` : "Your tokens are";
+    const got = r.got != null && r.got > 0n && r.decimals != null ? `${formatUnits(r.got, r.decimals, 6)} ${o.symbol || "tokens"} arrived` : "Your tokens are";
     this.done(
       "Bought privately",
-      `${got} in Vision wallet #${index + 1}, a fresh address funded from the pool. Sell them from the Sell tab whenever you like.`,
+      `${got} in Vision wallet #${index + 1}${o.fresh ? ", a fresh address funded from the pool" : ""}.${IS_EXTENSION ? " You can sell them any time from Swap." : " Sell them from the Sell tab whenever you like."}`,
       r.sig || undefined,
     );
   }
@@ -7650,11 +8972,15 @@ class Engine {
    * funded. It first makes sure the buy hasn't happened already: the last try's outcome, then the
    * wallet itself. `widen` uses finishSlippage, which the button names.
    */
-  async finishBuy(index: number, widen = false) {
+  async finishBuy(index: number, widen = false, accept = false, batchGuard?: TradeGuard) {
     const n = index + 1;
+    // what it was approved at (a batch's turn passes the batch's own); "Finish at today's price" takes on what its last stop asked
+    let guard: TradeGuard | undefined;
     try {
       const it = this.buyIntent(index);
       if (!it) throw new Error("There's no unfinished buy for this Vision wallet.");
+      guard = batchGuard ?? loadGuard(it.guard);
+      if (accept && it.hold) guard = acceptHold(guard, it.hold);
       const owner = this.visionKeypair(index).publicKey;
       this.step("buy", `Checking Vision wallet #${n}`);
       if (it.sig) {
@@ -7672,14 +8998,21 @@ class Engine {
       }
       const amount = room < want ? room : want;
       const slippageBps = widen ? this.finishSlippage(it) : it.slippageBps;
+      const minOut = guard?.ref ? turnFloor(amount, guard.ref, guard.driftBps ?? DRIFT_DEFAULT_BPS) : undefined;
       this.step("buy", "Getting the best route from Jupiter");
       // a retry: it pays a little more priority to land
-      const r = await this.swapFrom(index, { inputMint: WSOL, outputMint: it.mint, amount, slippageBps, side: "buy", speed: speedOf(it.speed) }, 1);
-      await this.boughtDone(index, r, amount);
+      const r = await this.swapFrom(index, { inputMint: WSOL, outputMint: it.mint, amount, slippageBps, side: "buy", speed: speedOf(it.speed), minOut, guard: guard ?? {} }, 1);
+      await this.boughtDone(index, r, amount, { fresh: false });
       return r.sig;
     } catch (e) {
       if (e instanceof StillPending || isFinal(e)) this.fail(e);
       const it = this.buyIntent(index);
+      const hold = holdOf(e);
+      if (hold) {
+        // stopped to ask: nothing was spent; what it asked is kept for "Finish at today's price"
+        if (it) this.saveIntent(index, { ...it, why: "hold", hold, ...(guard ? { guard: saveGuard(guard) } : {}) });
+        this.fail(keepHold(e, new Error(`${hold.text} The SOL is still in Vision wallet #${n}: finish at today's price, or move it back.`)));
+      }
       const moved = isPriceMoved(e);
       // the wider room the person chose is kept only when the price ran away from it too, so the next offer goes further
       if (it) this.saveIntent(index, { ...it, why: moved ? "price" : "other", ...(widen && moved ? { slippageBps: this.finishSlippage(it) } : {}) });
@@ -7711,11 +9044,11 @@ class Engine {
         throw new Error(`Vision wallet #${n} can spend at most ${fmt(most - (most % 1_000n), 6)} SOL: it keeps ${fmt(reserve, 4)} SOL for its fees.`);
       }
       const speed = speedOf(o.speed);
-      const p: SwapParams = { inputMint: WSOL, outputMint: mint, amount: solAmount, slippageBps, side: "buy", speed, minOut: o.minOut };
+      const p: SwapParams = { inputMint: WSOL, outputMint: mint, amount: solAmount, slippageBps, side: "buy", speed, minOut: o.minOut, guard: o.guard, symbol: o.symbol };
       this.step("buy", "Getting the best route from Jupiter");
       await this.precheckBuy(index, p);
       // remembered before the swap, like any buy, so a closed tab comes back to "Finish the buy"
-      this.saveIntent(index, { mint, amount: solAmount.toString(), slippageBps, auto, speed, at: Date.now() });
+      this.saveIntent(index, { mint, amount: solAmount.toString(), slippageBps, auto, speed, at: Date.now(), ...(o.guard ? { guard: saveGuard(o.guard) } : {}) });
       // this wallet's SOL now goes into the buy, not back into the pool
       this.dropSweep(index);
       let r: SwapResult;
@@ -7728,13 +9061,19 @@ class Engine {
         if (clear) this.clearIntent(index);
         await this.refreshVision([index]);
         if (!clear) throw this.buyStopped(index, e, lamports);
-        throw new Error(
-          isPriceMoved(e)
-            ? `The price moved past your price tolerance before the swap could land. The SOL is still in Vision wallet #${n}: check the new price and try again.`
-            : `The swap didn't go through: ${((e as Error)?.message || "no reason given").replace(/\.?$/, ".")} The SOL is still in Vision wallet #${n}.`,
+        const hold = holdOf(e);
+        throw keepHold(
+          e,
+          new Error(
+            hold
+              ? `${hold.text} The SOL is still in Vision wallet #${n}.`
+              : isPriceMoved(e)
+                ? `The price moved past your price tolerance before the swap could land. The SOL is still in Vision wallet #${n}: check the new price and try again.`
+                : `The swap didn't go through: ${((e as Error)?.message || "no reason given").replace(/\.?$/, ".")} The SOL is still in Vision wallet #${n}.`,
+          ),
         );
       }
-      await this.boughtDone(index, r, solAmount);
+      await this.boughtDone(index, r, solAmount, { symbol: o.symbol, fresh: false });
       return r.sig;
     } catch (e) {
       this.fail(e);
@@ -7759,9 +9098,20 @@ class Engine {
       this.step("sell", "Getting the best route from Jupiter");
       let r: Awaited<ReturnType<Engine["swapFrom"]>>;
       try {
-        r = await this.swapFrom(index, { inputMint: mint, outputMint: WSOL, amount, slippageBps, side: "sell", speed: speedOf(o.speed), minOut: o.minOut, onSwap: o.onSwap });
+        r = await this.swapFrom(index, {
+          inputMint: mint,
+          outputMint: WSOL,
+          amount,
+          slippageBps,
+          side: "sell",
+          speed: speedOf(o.speed),
+          minOut: o.minOut,
+          onSwap: o.onSwap,
+          guard: o.guard,
+          symbol: o.symbol,
+        });
       } catch (e) {
-        if (ended) throw new Error(`${((e as Error)?.message || "The sale didn't go through.").replace(/\.?$/, ".")} ${ended}`);
+        if (ended) throw keepHold(e, new Error(`${((e as Error)?.message || "The sale didn't go through.").replace(/\.?$/, ".")} ${ended}`));
         throw e;
       }
       // a sale shows any buy in this wallet went through
@@ -7788,7 +9138,7 @@ class Engine {
             ? `The SOL from Vision wallet #${index + 1} is in the waiting room and joins your private balance in about ${this.waitLabel()}.`
             : tokensLeft
               ? `The SOL stays in Vision wallet #${index + 1} for now: it's below the smallest deposit. Sell more, then use "Move back to private balance" in the Wallets tab.`
-              : `The SOL stays in Vision wallet #${index + 1}: it's less than the smallest deposit, so it can't go back into the pool on its own. "Send to an address" in the Wallets tab moves it wherever you like.`,
+              : `The SOL stays in Vision wallet #${index + 1}: it's less than the smallest deposit, so it can't go back into the pool on its own. It goes back with the rest once the wallet holds enough to "Move back to private balance".`,
         r.sig || undefined,
       );
       return r.sig;
@@ -7810,7 +9160,7 @@ class Engine {
 
   /** The network fee of a Vision wallet's move into the pool (with account closes it gets a bigger compute budget). */
   private sweepTxFee(closes: boolean): bigint {
-    return closes ? 5_000n * (this.s.pool?.requireAttestation ? 2n : 1n) + ownPriority(SWEEP_CU) : this.depositTxFee();
+    return closes ? this.sigFees() + ownPriorityMax("sweep") : this.depositTxFee();
   }
 
   /** The least a Vision wallet holding nothing else must have for "Move back to private balance" to work. */
@@ -7852,6 +9202,19 @@ class Engine {
   }
 
   private async sweepInner(index: number, quiet: boolean): Promise<string | undefined> {
+    // while it moves, no other read of the wallet shows less than before: the move reads it itself, once the
+    // waiting room shows its deposit (busy is set before the first await inside, as before)
+    this.sweeping.set(index, (this.sweeping.get(index) ?? 0) + 1);
+    try {
+      return await this.sweepOnce(index, quiet);
+    } finally {
+      const n = (this.sweeping.get(index) ?? 1) - 1;
+      if (n > 0) this.sweeping.set(index, n);
+      else this.sweeping.delete(index);
+    }
+  }
+
+  private async sweepOnce(index: number, quiet: boolean): Promise<string | undefined> {
     // busy before the first await, so nothing else can start in between
     this.step("sweep", "Moving the SOL back into your private balance");
     await this.loadPool(); // the latest fee rules decide how much fits
@@ -7860,6 +9223,12 @@ class Engine {
     const n = index + 1;
     // emptied token accounts close for their rent; more than fit beside the deposit close first, on their own
     let left = await this.emptyAccounts(kp.publicKey);
+    if (left.dust.length) {
+      // slivers a route left behind hold back the wallet's fee reserve: cleared first, on their own (a token
+      // that won't let them go simply keeps them, and the reserve stays as before)
+      await this.closeAccounts(kp, left.dust).catch(() => {});
+      left = await this.emptyAccounts(kp.publicKey);
+    }
     if (left.units.length > SWEEP_CLOSES) {
       await this.closeAccounts(kp, left.units);
       left = await this.emptyAccounts(kp.publicKey);
@@ -7903,28 +9272,25 @@ class Engine {
     for (let k = 0; k < parts.length; k++) {
       if (parts.length > 1) this.step("sweep", `Deposit ${k + 1} of ${parts.length}`, "The pool takes at most a set amount per deposit, so this goes in parts.");
       const first = k === 0;
+      // only the first part closes accounts; the attestation must sit right before the deposit
+      const withCloses = first && closes.length > 0;
+      let shape = drawOwnShape(withCloses ? "sweep" : "deposit");
       let amount = parts[k];
-      let dust = 0n;
       if (k === parts.length - 1) {
-        // the last part is planned from what is really there now, and carries the rounding dust
+        // the last part is planned from what is really there now, at this transaction's own fee: with no
+        // reserve to keep, the wallet ends at exactly zero, its rounding sliver paid in the fee (see lastDeposit)
         const fresh = first ? lamports + left.reclaim : BigInt(await conn().getBalance(kp.publicKey, "confirmed"));
-        const fee = first ? txFee : this.depositTxFee();
-        ({ amount, dust } = lastPart({ lamports: fresh, txFee: fee, rentPending, reserve, feeBps, max, rentWallet: rent.wallet }));
+        if (reserve > 0n) ({ amount } = lastPart({ lamports: fresh, txFee: this.depositFeeOf(shape), rentPending, reserve, feeBps, max, rentWallet: rent.wallet }));
+        else ({ amount, shape } = this.lastDeposit(fresh - rentPending - this.depositFeeOf(shape), shape, max, rent.wallet));
         // it changed meanwhile: what's left is below the smallest deposit, so it stays in the wallet
         if (amount < min) break;
-        rest = leftOver({ lamports: fresh, txFee: fee, rentPending, reserve, feeBps, amount, dust, nextTxFee: this.depositTxFee(), min, max });
+        rest = leftOver({ lamports: fresh, txFee: this.depositFeeOf(shape), rentPending, reserve, feeBps, amount, dust: 0n, nextTxFee: this.depositTxFee(), min, max });
       }
       // the note must belong to the account this Vision wallet belongs to
       if (this.keys !== keys) throw new Error("Your account was locked, so this stopped. Nothing more was sent.");
-      const { ixs: dep } = await this.depositIxs(kp.publicKey, amount);
-      if (dust > 0n) {
-        const pendingAccount = dep[dep.length - 1].keys[4].pubkey;
-        dep.push(SystemProgram.transfer({ fromPubkey: kp.publicKey, toPubkey: pendingAccount, lamports: dust }));
-      }
-      // only the first part closes accounts; the attestation must sit right before the deposit
-      const withCloses = first && closes.length > 0;
+      const { ixs: dep } = await this.depositIxs(kp.publicKey, amount, undefined, shape);
       const tx = new Transaction().add(
-        ...computeBudget(withCloses ? SWEEP_CU : DEPOSIT_CU, OWN_PRICE),
+        ...budgetOf(shape),
         ...(withCloses ? closes : []),
         ...dep.filter((i) => !i.programId.equals(ComputeBudgetProgram.programId)),
       );
@@ -7933,10 +9299,12 @@ class Engine {
       if (withCloses && !fits(tx)) {
         // too big after all: close the accounts on their own, then move what's there
         await this.closeAccounts(kp, left.units);
-        return this.sweepInner(index, quiet);
+        return this.sweepOnce(index, quiet);
       }
       tx.sign(kp);
       sig = await sendAndConfirm(tx, "deposit");
+      // the wallet still shows this SOL until it's read again: its deposit counts there, not in the waiting room too
+      if (this.keys === keys) this.noteMoved("vision", index, amount);
       sent++;
       total += amount;
       if (first) this.clearIntent(index);
@@ -7946,7 +9314,10 @@ class Engine {
     if (!rest) this.dropSweep(index);
     // the next automatic move into the pool waits its gap after this one
     if (sent) ls.set(this.vmoveKey(), { plan: afterMove(Date.now(), this.vmoveState().plan, index, MOVE_GAP), last: Date.now() });
-    await Promise.all([this.awaitWaiting(kp.publicKey.toBase58(), before, sent), this.refreshVision([index])]);
+    // the wallet is read again only once the waiting room shows the deposit (see the deposit address's move): the
+    // total never dips while the server's index catches up with the chain, a few seconds after the deposit lands
+    await this.awaitWaiting(kp.publicKey.toBase58(), before, sent);
+    await this.refreshVision([index], true, true);
     if (!quiet)
       this.done(
         "Moved back",
@@ -7962,9 +9333,10 @@ class Engine {
    * holding it). Also says which token programs it still holds tokens under; an account its
    * token's issuer froze can neither be sold nor closed, so it holds nothing back.
    */
-  private async emptyAccounts(owner: PublicKey): Promise<{ units: CloseUnit[]; reclaim: bigint; holds: string[] }> {
+  private async emptyAccounts(owner: PublicKey): Promise<{ units: CloseUnit[]; reclaim: bigint; holds: string[]; dust: CloseUnit[] }> {
     const units: CloseUnit[] = [];
     const holds: string[] = [];
+    const dust: CloseUnit[] = [];
     const lists: [string, Awaited<ReturnType<Connection["getParsedTokenAccountsByOwner"]>>][] = [];
     for (const prog of [TOKEN_PROGRAM, TOKEN_2022]) lists.push([prog, await conn().getParsedTokenAccountsByOwner(owner, { programId: new PublicKey(prog) }, "confirmed")]);
     const infoOf = (a: (typeof lists)[number][1]["value"][number]) => (a.account.data as { parsed: { info: TokenAccountInfo } }).parsed.info;
@@ -7995,14 +9367,23 @@ class Engine {
           if (prog === TOKEN_2022 && withheld && BigInt(withheld) > 0n) ixs.push(harvestWithheldIx(new PublicKey(info.mint), a.pubkey));
           ixs.push(closeAccountIx(a.pubkey, owner, new PublicKey(prog)));
           units.push({ ixs, lamports });
-        } else if (!holds.includes(prog)) {
-          holds.push(prog);
+        } else {
+          // a sliver a route left behind (see isDust): burned and closed by the move back, so it holds nothing back
+          const raw = BigInt(info.tokenAmount.amount);
+          if (info.mint !== WSOL && !info.delegate && isDust(raw, info.tokenAmount.decimals ?? 0)) {
+            const ixs = [burnIx(a.pubkey, new PublicKey(info.mint), owner, raw, new PublicKey(prog))];
+            const withheld = info.extensions?.find((x) => x.extension === "transferFeeAmount")?.state?.withheldAmount;
+            if (prog === TOKEN_2022 && withheld && BigInt(withheld) > 0n) ixs.push(harvestWithheldIx(new PublicKey(info.mint), a.pubkey));
+            ixs.push(closeAccountIx(a.pubkey, owner, new PublicKey(prog)));
+            dust.push({ ixs, lamports });
+          }
+          if (!holds.includes(prog)) holds.push(prog);
         }
       }
     }
     // a live sale's account closed meanwhile (a manual sale unwraps it): opened again
     if (sellLive && !hasWsolAta) units.push({ ixs: [createAtaIx(owner, owner, new PublicKey(WSOL), new PublicKey(TOKEN_PROGRAM))], lamports: -TOKEN_ACCOUNT_RENT });
-    return { units, reclaim: units.reduce((s, u) => s + u.lamports, 0n), holds };
+    return { units, reclaim: units.reduce((s, u) => s + u.lamports, 0n), holds, dust };
   }
 
   /**
@@ -8014,9 +9395,10 @@ class Engine {
     while (rest.length) {
       let take = rest.length;
       let tx: Transaction;
+      const shape = drawOwnShape("cleanup");
       const bh = (await conn().getLatestBlockhash("confirmed")).blockhash;
       for (;;) {
-        tx = new Transaction().add(...computeBudget(CLEANUP_CU, OWN_PRICE), ...rest.slice(0, take).flatMap((u) => u.ixs));
+        tx = new Transaction().add(...budgetOf(shape), ...rest.slice(0, take).flatMap((u) => u.ixs));
         tx.feePayer = kp.publicKey;
         tx.recentBlockhash = bh;
         if (fits(tx) || take === 1) break;
@@ -8070,11 +9452,12 @@ class Engine {
         ixs.push(closeAccountIx(a.pubkey, owner, prog));
         reclaim += BigInt(a.account.lamports);
       }
-      const fee = 5_000n + ownPriority(CLEANUP_CU);
+      const shape = drawOwnShape("cleanup");
+      const fee = SIG_FEE + priorityOf(shape);
       if (BigInt(await conn().getBalance(owner, "confirmed")) < fee) {
         throw new Error(`Vision wallet #${n} needs a tiny bit of SOL (${fmtUp(fee, 6)}) for the network fee first.`);
       }
-      const tx = new Transaction().add(...computeBudget(CLEANUP_CU, OWN_PRICE), ...ixs);
+      const tx = new Transaction().add(...budgetOf(shape), ...ixs);
       tx.feePayer = owner;
       tx.recentBlockhash = (await conn().getLatestBlockhash("confirmed")).blockhash;
       tx.sign(kp);
@@ -8090,7 +9473,9 @@ class Engine {
 
   /**
    * Sends everything a Vision wallet holds to another wallet as an ordinary (public) transfer,
-   * closing its empty token accounts on the way: for SOL too little to move into the pool.
+   * closing its empty token accounts on the way. A public transfer links the wallet to wherever it
+   * goes, so the app never suggests it for what a deposit's waiting room sent back: that stays,
+   * and goes back into the pool with the wallet's next move.
    */
   async sendFromVision(index: number, to: string) {
     const n = index + 1;
@@ -8103,6 +9488,9 @@ class Engine {
       }
       const kp = this.visionKeypair(index);
       if (dest.equals(kp.publicKey)) throw new Error("That's this Vision wallet itself.");
+      // the recipient is screened before anything is signed, as for a payment sent without the relayer (P0-3)
+      this.step("send", "Checking the recipient");
+      await this.checkSendAll(dest.toBase58());
       this.step("send", `Sending from Vision wallet #${n}`);
       let left = await this.emptyAccounts(kp.publicKey);
       if (left.holds.length) throw new Error(`Vision wallet #${n} still holds tokens. Sell them (or clear ones you won't sell) first, so nothing is left behind.`);
@@ -8113,13 +9501,14 @@ class Engine {
       }
       const units = left.units.slice(0, SWEEP_CLOSES);
       const reclaim = units.reduce((s, u) => s + u.lamports, 0n);
-      const amount = BigInt(await conn().getBalance(kp.publicKey, "confirmed")) + reclaim - 5_000n - ownPriority(CLEANUP_CU);
+      const shape = drawOwnShape("cleanup");
+      const amount = BigInt(await conn().getBalance(kp.publicKey, "confirmed")) + reclaim - SIG_FEE - priorityOf(shape);
       if (amount <= 0n) throw new Error("There's nothing to send from this Vision wallet.");
       const { wallet: rentMin } = await this.rentNow();
       const exists = (await conn().getBalance(dest, "confirmed")) > 0;
       if (!exists && amount < rentMin) throw new Error(`A new address needs at least ${fmt(rentMin, 6)} SOL to exist. Send it to a wallet that already holds SOL.`);
       const tx = new Transaction().add(
-        ...computeBudget(CLEANUP_CU, OWN_PRICE),
+        ...budgetOf(shape),
         ...units.flatMap((u) => u.ixs),
         SystemProgram.transfer({ fromPubkey: kp.publicKey, toPubkey: dest, lamports: amount }),
       );
@@ -8127,6 +9516,7 @@ class Engine {
       tx.recentBlockhash = (await conn().getLatestBlockhash("confirmed")).blockhash;
       tx.sign(kp);
       const sig = await sendAndConfirm(tx, "transfer");
+      this.notePaid(dest.toBase58(), kp.publicKey.toBase58());
       this.clearIntent(index);
       this.dropSweep(index);
       this.log({ kind: "send", text: `Sent ${fmt(amount)} SOL from Vision wallet #${n} to ${this.addressName(dest.toBase58())}`, sig });
@@ -8216,9 +9606,20 @@ class Engine {
         sig = await sendAndConfirm(tx, "refund");
       } else {
         if (!wallet || !wallet.publicKey.equals(depositor)) throw new Error("Connect the wallet that made this deposit.");
-        tx.feePayer = depositor;
-        tx.recentBlockhash = (await conn().getLatestBlockhash("confirmed")).blockhash;
-        sig = await sendAndConfirm(await wallet.signTransaction(tx), "refund");
+        const done = await this.walletSigned(
+          wallet,
+          (bh) => {
+            // a new transaction each time, so a second approval never carries the first one's signature
+            const t = new Transaction().add(ix);
+            t.feePayer = depositor;
+            t.recentBlockhash = bh.blockhash;
+            return t;
+          },
+          (again) => {
+            if (again) this.step("refund", APPROVE_AGAIN);
+          },
+        );
+        sig = await sendAndConfirm(done.tx, "refund", done.expiry);
       }
       if (w.deposit !== null) this.setHeld(w.deposit, "returned");
       // a payment from the wallet this deposit was for won't go
@@ -8251,35 +9652,89 @@ class Engine {
   statement(includeViewKey: boolean): string {
     const { keys, pool } = this.need();
     const h = (x: bigint) => hex(toBE(x));
+    // what it shows and what it doesn't is written into the file itself (lib/statement.ts)
     return JSON.stringify(
-      {
-        kind: "visionswap-statement",
-        version: 1,
-        createdAt: new Date().toISOString(),
-        network: pool.network,
-        programId: pool.programId,
-        account: {
+      buildStatement(
+        {
+          network: pool.network,
+          programId: pool.programId,
           fingerprint: this.s.fingerprint,
           pubKey: h(keys.pubKey),
-          ...(includeViewKey ? { viewKey: hex(keys.viewKey) } : {}),
+          viewKey: hex(keys.viewKey),
+          balanceLamports: (this.s.balance - this.s.arriving).toString(),
+          notes: this.s.notes.map((n) => ({
+            index: n.index,
+            amountLamports: n.amount.toString(),
+            leaf: h(n.leaf),
+            nonce: hex(n.nonce),
+            blinding: h(n.blinding),
+          })),
+          activity: this.s.activity,
         },
-        balanceLamports: (this.s.balance - this.s.arriving).toString(),
-        notes: this.s.notes.map((n) => ({
-          index: n.index,
-          amountLamports: n.amount.toString(),
-          leaf: h(n.leaf),
-          nonce: hex(n.nonce),
-          blinding: h(n.blinding),
-        })),
-        activity: this.s.activity,
-        howToVerify:
-          "Each note is a leaf of the pool's Merkle tree: leaf = Poseidon(amount, Poseidon(pubKey, blinding)) on BN254. " +
-          "Recompute it from the values above and find it at its index in the program's Spent or DepositSettled events. " +
-          "Activity lists the Solana transactions that moved funds in and out.",
-      },
+        includeViewKey,
+      ),
       null,
       2,
     );
+  }
+
+  /**
+   * A payment receipt (P1-1, only while RECEIPTS_ENABLED, lib/features.ts): for one private payment of
+   * this account, the notes it spent and where they came from, back to the deposits that made them
+   * (sdk receipt.ts). The pool's whole transaction index is downloaded first, the same bytes for
+   * everyone (lib/receipts.ts), so nothing tells the server which notes or deposits are this account's.
+   */
+  async receiptFor(a: Activity, opts: { openOutputs?: boolean; depth?: number; binding?: OwnershipProof[] } = {}): Promise<Receipt> {
+    // (switched off, everything below is dropped from the build: lib/features.ts)
+    if (!(typeof __VS_RECEIPTS__ === "boolean" && __VS_RECEIPTS__)) throw new Error("This isn't available yet.");
+    const { keys, pool } = this.need();
+    let paymentTx = a.sig;
+    let delivery: { tx: string; hop: string; to: string } | undefined;
+    if (a.delivery && !a.delivery.onward) {
+      // a payment to an outside address: the pool paid its one-time address (tx1), which then delivered it (tx2)
+      const leg = this.legs().find((l) => l.hop === a.delivery!.hop);
+      if (!leg?.tx1) throw new Error("This device's record of the payment doesn't name its pool transaction, so it can't make a receipt for it.");
+      paymentTx = leg.tx1;
+      const tx2 = leg.status === "delivered" ? leg.tx2 : a.sig;
+      if (tx2 && tx2 !== leg.tx1) delivery = { tx: tx2, hop: a.delivery.hop, to: a.delivery.to };
+    }
+    if (!paymentTx || a.kind !== "send") throw new Error("Pick a private payment from your activity.");
+    await this.sync();
+    const index = await downloadTxIndex(apiBinary);
+    // every note of this account, spent ones included, from this browser's copy of the pool
+    const notes: OwnNote[] = [];
+    for (let i = 0; i < this.leafCount; i++) {
+      const rec = this.leafBytes.subarray(i * LEAF_REC, i * LEAF_REC + LEAF_REC);
+      const n = tryOpen(keys, i, fromBE(rec.subarray(0, 32)), rec.subarray(32));
+      if (n) notes.push({ index: i, leaf: n.leaf, amount: n.amount, blinding: n.blinding });
+    }
+    const history = historyFrom(index, (i) => (i < this.nfCount ? fromBE(this.nfBytes.subarray(i * 32, i * 32 + 32)) : null));
+    return buildReceipt(keys, notes, history, {
+      network: pool.network,
+      programId: pool.programId,
+      paymentTx,
+      delivery,
+      openOutputs: opts.openOutputs,
+      depth: opts.depth,
+      binding: opts.binding,
+    });
+  }
+
+  /**
+   * "Prove I control this address" (P1-2): signs an exchange's challenge with a Vision wallet, a deposit
+   * address or the connected wallet (lib/ownership.ts). The signed text always starts "VisionSwap
+   * ownership proof:", so it can never be a transaction. Nothing is sent anywhere.
+   */
+  async proveControl(kind: "vision" | "deposit" | "wallet", index: number, text: string, wallet?: WalletLike | null): Promise<OwnershipProof> {
+    if (kind === "vision") return signOwnership(this.visionKeypair(index).secretKey, text);
+    if (kind === "deposit") return signOwnership(this.depositKeypair(index).secretKey, text);
+    if (!wallet) throw new Error("Connect the wallet you want to prove first.");
+    const msg = ownershipMessage(text);
+    try {
+      return proofFrom(wallet.publicKey.toBase58(), text, await wallet.signMessage(msg));
+    } catch (e) {
+      throw walletDeclined(e) ? new Error("Signing was cancelled.") : e;
+    }
   }
 
   /** Moves an overdue deposit into the pool yourself (normally the server does this). */
@@ -8305,9 +9760,20 @@ class Engine {
         tx.sign(own);
         sig = await sendAndConfirm(tx, "settlement");
       } else if (payer === "wallet" && wallet) {
-        tx.feePayer = wallet.publicKey;
-        tx.recentBlockhash = (await conn().getLatestBlockhash("confirmed")).blockhash;
-        sig = await sendAndConfirm(await wallet.signTransaction(tx), "settlement");
+        const done = await this.walletSigned(
+          wallet,
+          (bh) => {
+            // a new transaction each time, so a second approval never carries the first one's signature
+            const t = new Transaction().add(...tx.instructions);
+            t.feePayer = wallet.publicKey;
+            t.recentBlockhash = bh.blockhash;
+            return t;
+          },
+          (again) => {
+            if (again) this.step("shield", APPROVE_AGAIN);
+          },
+        );
+        sig = await sendAndConfirm(done.tx, "settlement", done.expiry);
       } else {
         try {
           sig = (await api<{ signature: string }>("/api/settle", { json: { inner: w.inner } })).signature;
@@ -8377,7 +9843,7 @@ class Engine {
         attempt--;
         continue;
       }
-      const tx = await this.checkedSwap(b, owner, p);
+      const tx = await this.checkedSwap(b, owner, p, index);
       tx.sign([kp]);
       const sig = signatureOf(tx);
       // an unfinished buy remembers its try, so "Finish the buy" can see whether it landed
@@ -8477,9 +9943,18 @@ class Engine {
    * that can't keep that promise isn't used.
    */
   private async buildWithin(index: number, p: SwapParams, attempt: number, patienceMs: number): Promise<SwapBuild> {
-    const b = await this.buildFor(index, p, attempt, patienceMs);
+    const b = await this.buildFor(index, p, attempt, patienceMs).catch((e) => {
+      // the server refused the route itself (off the market, or squeezed too small to be fair): nothing was spent,
+      // and a batch stops there to ask rather than going on to the next wallet
+      if (e instanceof ApiError && e.status === 422 && /won't make it|doesn't fit in one transaction/i.test(e.message)) throw new TradeHold({ why: "block", text: e.message });
+      throw e;
+    });
+    // the build's own figures first: a price past the approved one, a market check that needs a yes, a tax that went up
+    this.guardBuild(b.quote, p, index);
     if (p.minOut == null || BigInt(b.quote.minOut) >= p.minOut) return b;
     const bps = roomFor(BigInt(b.quote.outAmount), p.minOut);
+    // too close to the approved price's floor to leave any room: as far as it may go, so it stops to ask
+    if (bps == null && p.guard?.ref) throw this.driftHold(p, index, BigInt(b.quote.inAmount), BigInt(b.quote.outAmount), driftPct(p.guard.ref, { in: BigInt(b.quote.inAmount), out: BigInt(b.quote.outAmount) }));
     if (bps == null) throw new Error(PRICE_MOVED);
     const t = await this.buildFor(index, { ...p, slippageBps: bps }, attempt, patienceMs);
     if (BigInt(t.quote.minOut) < p.minOut) throw new Error(PRICE_MOVED);
@@ -8489,11 +9964,19 @@ class Engine {
   /**
    * The swap transaction from a build, checked before anything signs it: the SDK's structural
    * check, then the amounts (priority fee within the chosen speed's cap, no more SOL than the
-   * trade) and that the tokens land in this Vision wallet.
+   * trade) and that the tokens land in this Vision wallet. Jupiter's own instruction is decoded too
+   * (never taken on the server's word): it must trade exactly the amount asked, from and into this
+   * wallet's own accounts, with no fee beyond VisionSwap's, and its on-chain minimum must be at
+   * least the one the person was shown (or, with none shown, its price room no wider than chosen).
    */
-  private async checkedSwap(b: SwapBuild, owner: PublicKey, p: SwapParams): Promise<VersionedTransaction> {
+  private async checkedSwap(b: SwapBuild, owner: PublicKey, p: SwapParams, index: number): Promise<VersionedTransaction> {
+    this.poolGate("swap");
     const tx = VersionedTransaction.deserialize(unb64(b.tx));
     checkSwapTx(tx, owner);
+    // the compute limit the server set from its simulation by a fixed formula, raised by a random amount before
+    // signing (VS-34): only while the fee stays within the chosen speed's cap and close to what was built
+    const fee = (units: bigint, price: bigint) => (units * price + 999_999n) / 1_000_000n;
+    jitterComputeLimit(tx, (units, price, before) => fee(units, price) <= SPEED_CAP[speedOf(p.speed)] && fee(units, price) - fee(before, price) <= SWAP_JITTER_MAX);
     const tables: AddressLookupTableAccount[] = await Promise.all(
       tx.message.addressTableLookups.map(async (l) => {
         const t = (await conn().getAddressLookupTable(l.accountKey, { commitment: "confirmed" })).value;
@@ -8502,7 +9985,147 @@ class Engine {
       }),
     );
     checkSwapSpend(tx, tables, { owner, outputMint: p.outputMint, lamportsIn: p.side === "buy" ? p.amount : 0n, speed: speedOf(p.speed) });
+    const sellFee = Math.min(this.s.pool?.sellFeeBps ?? 0, MAX_SWAP_FEE_BPS);
+    const route = decodeJupiterRoute(tx, tables);
+    checkJupiterRoute(route, {
+      owner,
+      inputMint: p.inputMint,
+      outputMint: p.outputMint,
+      amount: p.amount,
+      slippageBps: p.slippageBps,
+      maxPlatformFeeBps: p.side === "sell" ? sellFee : 0,
+      minOut: p.minOut ?? null,
+      quotedMinOut: BigInt(b.quote.minOut),
+    });
+    // the price the transaction itself carries, checked again here (never only on the server's word)
+    await this.guardRoute(route, b, p, index, p.side === "sell" ? sellFee : 0);
     return tx;
+  }
+
+  // ─── the price checks before signing (sdk/src/tradeguard.ts) ───
+
+  /** A turn whose price moved past the approved one: it stops to ask, with the new price "Continue" would take on. */
+  private driftHold(p: SwapParams, index: number, inAmount: bigint, outAmount: bigint, pct: number): TradeHold {
+    const text = driftText({ side: p.side, pct, symbol: p.symbol || "the token", wallet: walletName(index) });
+    return new TradeHold({ why: "drift", text, nowIn: inAmount.toString(), nowOut: outAmount.toString() });
+  }
+
+  /** The approved price against `inAmount` -> `outAmount` (a build's figures, or the transaction's own). */
+  private guardDrift(p: SwapParams, index: number, inAmount: bigint, outAmount: bigint) {
+    const g = p.guard;
+    if (!g?.ref) return;
+    const stop = driftStop(p.side, g.ref, { in: inAmount, out: outAmount }, g.driftBps ?? DRIFT_DEFAULT_BPS);
+    if (stop) throw this.driftHold(p, index, inAmount, outAmount, stop.pct);
+  }
+
+  /** A market check against what the person agreed to: refused, a yes it still needs, or nothing to say. */
+  private guardCheck(c: TradeCheck, p: SwapParams) {
+    const g = p.guard ?? {};
+    const need = needs(c, g);
+    if (!need) return;
+    const say = checkSay(c, { symbol: p.symbol || "the token", side: p.side, unlocked: !!g.unlocked });
+    const text = say?.text ?? "This trade's price couldn't be checked against the market.";
+    if (need === "block") throw new TradeHold({ why: "block", text: `${text} Nothing was spent.` });
+    if (need === "noprice") throw new TradeHold({ why: "noprice", text: `${text} Nothing was spent.` });
+    throw new TradeHold({ why: "market", loss: c.movePct, text: `${text.replace(/ A smaller amount usually gets a better price\.$/, "")} That's more than you agreed to, so nothing was spent.` });
+  }
+
+  /** A transfer tax that went up since the quote the person approved. */
+  private guardTaxes(p: SwapParams, now: Record<string, number> | undefined) {
+    const token = p.side === "buy" ? p.outputMint : p.inputMint;
+    const up = taxRises(p.guard?.taxes, now, p.guard?.taxes ? [token] : []);
+    if (!up.length) return;
+    const [m, was, is] = up[0];
+    const who = m === token ? (p.symbol || "The token") : `A token in this route (${shortAddr(m)})`;
+    throw new TradeHold({ why: "tax", taxes: now, text: `${who}'s transfer tax went from ${was / 100}% to ${is / 100}% since you approved this trade. Nothing was spent.` });
+  }
+
+  /** The server's build, by its own figures: the approved price, its market check, the taxes. */
+  private guardBuild(q: SwapQuote, p: SwapParams, index: number) {
+    this.guardDrift(p, index, BigInt(q.inAmount), BigInt(q.outAmount));
+    if (q.check) this.guardCheck(q.check, p);
+    this.guardTaxes(p, q.check?.taxes);
+  }
+
+  /**
+   * The transaction about to be signed, by its own amounts: the approved price again, and the market
+   * check worked out here from the decoded instruction, this app's own read of the token (its
+   * decimals and tax) and the market prices, taken together with the server's (the worse of the two;
+   * the server's check of each step stands, the instruction doesn't state them). No check at all is
+   * never a pass: it asks.
+   */
+  private async guardRoute(r: JupiterRoute, b: SwapBuild, p: SwapParams, index: number, feeBps: number) {
+    this.guardDrift(p, index, r.inAmount, r.quotedOutAmount);
+    const server = b.quote.check ?? null;
+    const own = await this.ownCheck(r, b, p, feeBps).catch(() => null);
+    const c: TradeCheck = own ? worse(own, server) : (server ?? this.blankCheck(b.quote.priceImpactPct));
+    this.guardCheck(c, p);
+    this.guardTaxes(p, c.taxes);
+  }
+
+  /** The market check of a transaction, worked out in this app. */
+  private async ownCheck(r: JupiterRoute, b: SwapBuild, p: SwapParams, feeBps: number): Promise<TradeCheck> {
+    const token = p.side === "buy" ? p.outputMint : p.inputMint;
+    const [usd, t] = await Promise.all([this.usdNow([p.inputMint, p.outputMint]), this.ownMint(token)]);
+    const server = b.quote.check;
+    return assessRoute({
+      side: p.side,
+      inputMint: p.inputMint,
+      outputMint: p.outputMint,
+      inAmount: r.inAmount,
+      outAmount: r.quotedOutAmount,
+      // the impact as the server's check worked it out (measured when Jupiter's own figure counts taxes as impact);
+      // Jupiter's figure comes from the server either way, so this takes nothing on its word that the other didn't
+      ...(server ? { impactPct: server.impactPct, impactNet: true } : { impactPct: b.quote.priceImpactPct }),
+      steps: [],
+      via: server?.via ?? [],
+      decimals: { [WSOL]: 9, [token]: t.decimals },
+      usd,
+      // the token's own tax as read here; the ones in between as the server read them
+      taxes: { ...(server?.taxes ?? {}), [token]: Math.max(server?.taxes?.[token] ?? 0, t.bps) },
+      feeBps,
+    });
+  }
+
+  /** No market check could be made: a question, never a quiet pass. */
+  private blankCheck(impact: number): TradeCheck {
+    const impactPct = Math.max(0, impact || 0);
+    return { level: "confirm", why: "noprice", movePct: impactPct, impactPct, marketPct: null, step: null, unlockable: false, taxes: {}, costPct: 0, roundTripPct: 0 };
+  }
+
+  /** Market prices (US dollars) as the server's price book has them now, kept here for 15 s. */
+  private usdSeen = new Map<string, { at: number; usd: number | null }>();
+  private async usdNow(mints: string[]): Promise<Record<string, number | null>> {
+    const now = Date.now();
+    const need = mints.filter((m) => !((this.usdSeen.get(m)?.at ?? 0) > now - 15_000));
+    if (need.length) {
+      // with its age: a price more than two minutes old says nothing about this trade
+      const r = await api<Record<string, { usd: number; age: number } | null>>(`/api/price?ids=${need.join(",")}&at=1&fresh=1`);
+      for (const m of need) {
+        const e = r[m];
+        this.usdSeen.set(m, { at: now, usd: e && e.usd > 0 && e.age <= 120_000 ? e.usd : null });
+      }
+    }
+    return Object.fromEntries(mints.map((m) => [m, this.usdSeen.get(m)?.usd ?? null]));
+  }
+
+  /** A token's decimals and its transfer tax in force, read from the chain here (its rules kept 10 minutes, the epoch 30 s). */
+  private mintSeen = new Map<string, { at: number; decimals: number; older?: FeeRule; newer?: FeeRule }>();
+  private epochSeen: { at: number; epoch: number } | null = null;
+  private async ownMint(mint: string): Promise<{ decimals: number; bps: number }> {
+    let m = this.mintSeen.get(mint);
+    if (!m || Date.now() - m.at > 600_000) {
+      const info = await conn().getParsedAccountInfo(new PublicKey(mint), "confirmed");
+      const parsed = (info.value?.data as { parsed?: { info?: { decimals?: number; extensions?: { extension: string; state?: Record<string, unknown> }[] } } } | undefined)?.parsed?.info;
+      if (parsed?.decimals == null) throw new Error("unknown mint");
+      type Fee = { epoch: number; transferFeeBasisPoints: number };
+      const cfg = parsed.extensions?.find((e) => e.extension === "transferFeeConfig")?.state as { newerTransferFee?: Fee; olderTransferFee?: Fee } | undefined;
+      const rule = (f: Fee | undefined): FeeRule | undefined => (f ? { epoch: Number(f.epoch ?? 0), bps: Number(f.transferFeeBasisPoints ?? 0) } : undefined);
+      m = { at: Date.now(), decimals: parsed.decimals, older: rule(cfg?.olderTransferFee), newer: rule(cfg?.newerTransferFee) };
+      this.mintSeen.set(mint, m);
+    }
+    if (!this.epochSeen || Date.now() - this.epochSeen.at > 30_000) this.epochSeen = { at: Date.now(), epoch: (await conn().getEpochInfo("confirmed")).epoch };
+    return { decimals: m.decimals, bps: feeInForce(m, this.epochSeen.epoch).bps };
   }
 
   /** Ends an action with its error shown, in plain words; the message is returned for a caller that goes on. */
@@ -8524,7 +10147,7 @@ class Engine {
 
   /** The same, for an action whose caller hears of the failure by a rejected promise. */
   private fail(e: unknown): never {
-    throw new Error(this.report(e));
+    throw keepHold(e, new Error(this.report(e)));
   }
 
   clearError() {
@@ -8626,6 +10249,16 @@ class NotesHeld extends Error {
   }
 }
 
+/**
+ * A proof held for later whose notes are too new for it (see rootpolicy.ts in the SDK): it waits until
+ * `leaves` more notes have joined the pool, and never takes the newest root instead. Nothing was proved.
+ */
+class NotMature extends Error {
+  constructor(readonly leaves: number) {
+    super(`Its notes are new: it waits for ${leaves} more notes to join the pool first.`);
+  }
+}
+
 /** A payment from the wallet whose own note can't pay it: gone or held elsewhere ("unsure"), or short of today's fees ("fees"). Nothing was sent. */
 class PinnedNote extends Error {
   constructor(readonly ask: "unsure" | "fees") {
@@ -8639,9 +10272,25 @@ class PinnedNote extends Error {
 
 export { MaybeSent };
 
+/** The server is VisionSwap's own site: only the mainnet pool program is used, whatever network it names (see poolProblems). */
+const OFFICIAL = officialServer(API, typeof location === "undefined" ? "" : location.origin);
+
+/** Blocks a signed transaction's blockhash must still have left to be sent as it is (see walletSigned). */
+const BLOCKHASH_SPARE = 20;
+/** Said when a wallet approval took longer than the network's time limit: nothing was sent, and it asks once more. */
+const APPROVE_AGAIN = "That approval took a little long for the network, so nothing was sent. Please approve once more in your wallet.";
+
+/** Said when the server describes a pool this app doesn't recognise as VisionSwap's (see poolProblems in the SDK). */
+const POOL_MISMATCH = "This page can't confirm the pool the server named is VisionSwap's, so it isn't used. Nothing was sent. Please try again later.";
+
 /** An error that says for sure the payment didn't go: refused by the relayer, or told so (never one that may still land). */
 const nothingSpent = (e: unknown) =>
   !(e instanceof MaybeSent) && (e instanceof NotesHeld || (e instanceof ApiError && definite(e)) || /nothing was spent/i.test((e as Error)?.message ?? ""));
+/**
+ * The relayer refused a proof because the pool moved on past its root while it was being made (the
+ * program holds only its recent roots, see VS-16): that proof can never land, and nothing was spent.
+ */
+const rootMoved = (e: unknown) => e instanceof ApiError && e.status === 400 && /moved on while your proof was being made/i.test(e.message);
 const shortAddr = (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`;
 /** What a payment from the wallet asks while it waits to go (each row counts down its own wait). */
 export const PAY_OPEN_TEXT = "Keep this page open until it says Handed to the relayer. If you close it sooner, it picks up next time you open VisionSwap on this device.";
@@ -8658,13 +10307,19 @@ export type BuyIntent = {
   sig?: string;
   lvh?: number;
   sigAt?: number;
-  /** why the last try didn't go through: the price ran away, or anything else */
-  why?: "price" | "other";
+  /** why the last try didn't go through: the price ran away, it stopped to ask (see hold), or anything else */
+  why?: "price" | "hold" | "other";
+  /** what the buy was approved at (its price and limit, what was agreed), so finishing it later holds to it */
+  guard?: GuardSaved;
+  /** its last try stopped to ask: what it said, and what "Finish at today's price" takes on */
+  hold?: Hold;
 };
 
 /** Options a buy or sale carries from the form: the speed picked, and the least the quote shown said would arrive. */
 export type TradeOpts = {
   speed?: Speed;
+  /** the token's symbol (shortened), for saying what arrived */
+  symbol?: string;
   minOut?: bigint;
   /** a buy into a new Vision wallet: this one, if it's still unused (a batch's retry), else the next fresh one */
   index?: number;
@@ -8674,6 +10329,8 @@ export type TradeOpts = {
   orders?: boolean;
   /** a sale: told each swap as it goes out (a batch looks it up before trying again) */
   onSwap?: (sent: { sig: string; lvh: number }) => void;
+  /** what the person approved: the price (a batch's), the loss they said yes to, the taxes (see guard.ts) */
+  guard?: TradeGuard;
 };
 type SwapParams = {
   inputMint: string;
@@ -8684,8 +10341,11 @@ type SwapParams = {
   speed?: Speed;
   minOut?: bigint;
   onSwap?: TradeOpts["onSwap"];
+  guard?: TradeGuard;
+  /** the token's symbol, for what a stop to ask says */
+  symbol?: string;
 };
-type SwapQuote = { inAmount: string; outAmount: string; minOut: string; priceImpactPct: number; route: string[] };
+type SwapQuote = { inAmount: string; outAmount: string; minOut: string; priceImpactPct: number; route: string[]; check?: TradeCheck };
 type SwapBuild = { tx: string; lastValidBlockHeight: number; minContextSlot?: number; shortfall?: string; quote: SwapQuote; priorityLamports?: string };
 /** A swap that went through; `sig` is empty when an earlier try turned out to have landed. */
 type SwapResult = { sig: string; got?: bigint; decimals?: number };
@@ -8694,12 +10354,29 @@ type CloseUnit = { ixs: TransactionInstruction[]; lamports: bigint };
 
 /** An error that already says everything (no "try again" advice may be added to it). */
 const final = (message: string) => Object.assign(new Error(message), { final: true });
+
+/**
+ * A trade that stopped to ask before anything was spent on its swap: its price moved past the
+ * approved one, the market check wants a yes or refuses it, or a tax went up. A batch pauses on it.
+ */
+class TradeHold extends Error {
+  constructor(readonly hold: Hold) {
+    super(hold.text);
+  }
+}
+const holdOf = (e: unknown): Hold | undefined => (e as { hold?: Hold } | null)?.hold;
+/** A new error, saying more, that keeps the hold of the one it explains. */
+const keepHold = (from: unknown, to: Error): Error => {
+  const h = holdOf(from);
+  return h ? Object.assign(to, { hold: h }) : to;
+};
 const isFinal = (e: unknown) => !!(e as { final?: boolean })?.final;
+
+/** The most a swap's randomly raised compute limit may add to its fee (lamports): its Vision wallet's reserve covers far more. */
+const SWAP_JITTER_MAX = 50_000n;
 
 /** Empty accounts closed beside a deposit; more than this close first, in transactions of their own. */
 const SWEEP_CLOSES = 6;
-/** Compute for the app's own small transactions (closes, burns, approvals): roomy, and cheap at OWN_PRICE. */
-const CLEANUP_CU = 200_000;
 /** The rent a standard token account holds (it comes back when the account closes). */
 const TOKEN_ACCOUNT_RENT = 2_039_280n;
 
@@ -8716,15 +10393,7 @@ function fits(tx: Transaction): boolean {
 /** The most price tolerance a swap may use (the server allows the same). */
 export const MAX_SLIPPAGE = 2500;
 
-/**
- * "Auto" price tolerance for a token: thin markets move fast, so they get more room, and a
- * transfer tax adds its own share in case a route prices it loosely.
- */
-export function autoSlippage(t: { liquidity?: number | null } | null | undefined, transferFeeBps = 0): number {
-  const liq = t?.liquidity ?? null;
-  const base = liq == null ? 500 : liq < 50_000 ? 1000 : liq < 250_000 ? 600 : liq < 2_000_000 ? 300 : 100;
-  return Math.min(2000, base + Math.max(0, transferFeeBps));
-}
+export { autoSlippage };
 
 /** True when a swap failed because the price moved past its tolerance (Jupiter's or a market's own slippage check). */
 export function isPriceMoved(e: unknown): boolean {
@@ -8737,7 +10406,7 @@ type TokenAccountInfo = {
   mint: string;
   delegate?: string;
   state?: string;
-  tokenAmount: { amount: string };
+  tokenAmount: { amount: string; decimals?: number };
   extensions?: { extension: string; state?: { withheldAmount?: string | number } }[];
 };
 
@@ -8814,6 +10483,19 @@ function closeAccountIx(account: PublicKey, owner: PublicKey, programId: PublicK
     ],
     data: Buffer.from([9]),
   });
+}
+
+/** A delivery record the server sealed to a sending address's key (see sealTo in the SDK), opened with that key; null when it doesn't open. */
+function openRecord(kp: Keypair, box: string): HopLookup | null {
+  const raw = fromBase64(box);
+  const plain = raw ? openSealed(kp.secretKey, raw) : null;
+  if (!plain) return null;
+  try {
+    const v = JSON.parse(new TextDecoder().decode(plain)) as HopLookup;
+    return v && typeof v.status === "string" ? v : null;
+  } catch {
+    return null;
+  }
 }
 
 export const engine = new Engine();

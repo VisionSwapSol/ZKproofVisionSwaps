@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { Header } from "../components/Header";
 import { Footer } from "../components/Footer";
 import { Icon, type IconName } from "../components/Icon";
@@ -11,13 +11,13 @@ const GROUPS: { kicker: string; title: string; lede: string; items: Feature[] }[
   {
     kicker: "Built for traders",
     title: "Trade like nobody's watching.",
-    lede: "Public wallets leak your strategy. VisionSwap keeps your entries, your stack and your history to yourself.",
+    lede: "Public wallets leak your strategy. VisionSwap keeps your entries, your stack and your history off the wallet everyone is watching.",
     items: [
       {
         icon: "crosshair",
-        title: "Invisible to copy-traders",
-        text: "Copy-trade bots and wallet trackers follow known wallets. Every private buy comes from a brand-new Vision wallet with no history and no link to you, so there's nothing to follow.",
-        tech: "A fresh keypair per buy, funded from the pool by a relayer",
+        title: "Nothing for copy-traders to follow",
+        text: "Copy-trade bots and wallet trackers follow known wallets. A private buy from your private balance comes from a brand-new Vision wallet, funded from the shared pool instead of from you, so the wallet they follow never makes the trade.",
+        tech: "A fresh keypair for each buy from the private balance, funded from the pool by a relayer",
       },
       {
         icon: "swap",
@@ -28,7 +28,7 @@ const GROUPS: { kicker: string; title: string; lede: string; items: Feature[] }[
       {
         icon: "eyeOff",
         title: "Your stack stays private",
-        text: "Your private balance never shows up on-chain. Nobody can see how much you hold, or when you move it.",
+        text: "Your private balance never shows up on-chain as a number. No account or transaction says how much of the pool is yours.",
         tech: "Amounts sealed inside notes that only your viewing key can read",
       },
       {
@@ -54,7 +54,7 @@ const GROUPS: { kicker: string; title: string; lede: string; items: Feature[] }[
   {
     kicker: "Pro orders, privately",
     title: "Set your levels. Walk away.",
-    lede: "Limit buys, DCA, take-profits and stops that run on their own, even with the page closed, from Vision wallets that nothing on-chain ties to you.",
+    lede: "Limit buys, DCA, take-profits and stops that run on their own, even with the page closed, from Vision wallets funded straight from the pool.",
     items: [
       {
         icon: "crosshair",
@@ -134,18 +134,18 @@ const GROUPS: { kicker: string; title: string; lede: string; items: Feature[] }[
   {
     kicker: "Payments on your terms",
     title: "Pay when, and how, you like.",
-    lede: "Pay any address in one step straight from your wallet, or many people at once from your private balance, at a moment nobody can predict.",
+    lede: "Pay any address in one step straight from your wallet, or many people at once from your private balance, right away or at a random moment later.",
     items: [
       {
         icon: "relay",
         title: "Pay any address in one step",
-        text: "Type an address and an amount, and approve once in your wallet. Your SOL joins your private balance, then goes to the recipient from the pool by itself, right away or at a random moment. Your wallet never appears next to the payment.",
-        tech: "One deposit of the exact size, proved in your browser once it joins",
+        text: "Type an address and an amount, and approve once in your wallet. Your SOL joins your private balance, then goes to the recipient from the pool by itself, right away or at a random moment. The payment comes from the pool, not from your wallet, and a random moment later makes it much harder to pair with your deposit.",
+        tech: "One standard-size deposit, the change kept private, proved in your browser once it joins",
       },
       {
         icon: "clock",
         title: "Send later, at a random moment",
-        text: "Pick 15 minutes, an hour or a day, and each payment leaves at its own random moment inside it, so it doesn't land right after your deposit and is much harder to match to it by timing. Close the page; it still goes.",
+        text: "Pick 15 minutes, an hour or a day, and each payment leaves at its own random moment inside it, so its timing isn't tied to your deposit's and it is much harder to match to it by timing. Once it shows Scheduled, close the page; it still goes.",
         tech: "Proof made now, sent by the relayer inside your window",
       },
       {
@@ -189,7 +189,7 @@ const GROUPS: { kicker: string; title: string; lede: string; items: Feature[] }[
         icon: "relay",
         title: "Your wallet never appears",
         text: "A relayer submits private sends and Vision wallet funding, so your public wallet is never part of the transaction.",
-        tech: "Recipient, amount and fees are sealed into the proof",
+        tech: "Recipient, amount and relayer fee are bound into the proof",
       },
       {
         icon: "layers",
@@ -199,21 +199,21 @@ const GROUPS: { kicker: string; title: string; lede: string; items: Feature[] }[
       },
       {
         icon: "server",
-        title: "Nothing leaks to third parties",
-        text: "Chain data, prices and token lists all come through VisionSwap, so no outside service sees your IP next to your activity. No logs are kept.",
-        tech: "Single-origin site · copy-only explorer links",
+        title: "No third-party calls from your browser",
+        text: "Chain data, prices and token lists all come through VisionSwap's server, so the services behind it never see your IP address. VisionSwap's software writes no IP or wallet addresses to its logs.",
+        tech: "Single-origin site · copy-only explorer links in the app",
       },
     ],
   },
   {
     kicker: "Your money stays yours",
     title: "Your balance answers only to you.",
-    lede: "Your private balance answers only to your keys. Orders get exactly the permission you give them, and nothing more.",
+    lede: "Your private balance answers only to your keys. Orders get exactly the permission you give them, never more.",
     items: [
       {
         icon: "lock",
-        title: "Unfreezable by design",
-        text: "Funds sit in a program-owned vault that only pays out against a valid proof made with your keys. As the program stands, no admin setting can move, freeze or redirect them, and private sends can't be paused.",
+        title: "Paid out only against a proof",
+        text: "Funds sit in a program-owned vault that only pays out against a valid proof made with your keys, or back to the depositor from the waiting room. No admin setting can move or redirect them; an upgrade to the program could change those rules.",
         tech: "Rules enforced by the Solana program · its code fingerprint is in the Docs",
       },
       {
@@ -236,9 +236,9 @@ const GROUPS: { kicker: string; title: string; lede: string; items: Feature[] }[
       },
       {
         icon: "shield",
-        title: "A screened, clean pool",
-        text: "Every deposit is checked against sanctions lists, including who funded it, which keeps flagged money out of the pool withdrawals are paid from. Our relayer won't pay a sanctioned address either.",
-        tech: "OFAC sanctions list, refreshed every 6 hours · recipients screened too",
+        title: "Screened at entry",
+        text: "Every deposit is checked against the sanctions list, along with the wallets that recently funded it, before it can join the pool withdrawals are paid from. Our relayer won't pay a sanctioned address either.",
+        tech: "Checked against OFAC's published list for updates every 6 hours · recipients screened too",
       },
     ],
   },
@@ -299,9 +299,9 @@ const GROUPS: { kicker: string; title: string; lede: string; items: Feature[] }[
       },
       {
         icon: "doc",
-        title: "Proof of funds on demand",
-        text: "Download a statement, with an optional viewing key, for an exchange or an accountant. It shows where your money came from and can never spend it.",
-        tech: "Verifiable against the chain",
+        title: "Records on request",
+        text: "Download a statement of your notes, with an optional viewing key, for an exchange or an accountant. It shows each note and, for notes from a deposit, the wallet that made it, and it can never spend anything.",
+        tech: "Each note can be found on-chain",
       },
       {
         icon: "devices",
@@ -354,7 +354,7 @@ function TrackerCompare() {
             <Icon name="eyeOff" size={18} />
             Vision wallet #1
           </span>
-          <span className="cmp-tag good">Private</span>
+          <span className="cmp-tag good">Fresh</span>
         </header>
         <p className="cmp-addr mono">9xWn…XyBkD</p>
         <dl>
@@ -364,11 +364,11 @@ function TrackerCompare() {
           </div>
           <div>
             <dt>History</dt>
-            <dd>None</dd>
+            <dd>Starts fresh</dd>
           </div>
           <div>
-            <dt>Link to you</dt>
-            <dd>Nothing on-chain</dd>
+            <dt>Your main wallet</dt>
+            <dd>Never pays it</dd>
           </div>
         </dl>
       </Tilt>
@@ -387,9 +387,6 @@ const BUY_STEPS = [
 export default function WhyPage() {
   const root = useRef<HTMLDivElement>(null);
   useRise(root);
-  useEffect(() => {
-    document.title = "VisionSwap · Why VisionSwap";
-  }, []);
   return (
     <div ref={root} className="page why">
       <Header />
@@ -400,12 +397,12 @@ export default function WhyPage() {
               <div>
                 <p className="eyebrow rise">Why VisionSwap</p>
                 <h1 className="rise wide" style={{ ["--d" as string]: "80ms" }}>
-                  Trade without being tracked.
+                  Trade from fresh wallets, not the one being watched.
                 </h1>
                 <p className="lede rise" style={{ ["--d" as string]: "160ms" }}>
                   Every Solana wallet is public. Wallet trackers, copy-trade bots and anyone with an explorer can follow your buys,
-                  your size and your timing. VisionSwap gives you a private balance and a fresh, unlinkable wallet for every trade,
-                  secured by zero-knowledge proofs.
+                  your size and your timing. VisionSwap gives you a private balance and fresh wallets to trade from, funded from
+                  a shared pool instead of from you, secured by zero-knowledge proofs.
                 </p>
                 <div className="hero-cta rise" style={{ ["--d" as string]: "240ms" }}>
                   <a className="btn" href="/app">
@@ -428,8 +425,8 @@ export default function WhyPage() {
                 <dd className="mono">67M</dd>
               </div>
               <div>
-                <dt>Proof check on-chain</dt>
-                <dd className="mono">&lt;200k CU</dd>
+                <dt>A private spend on-chain</dt>
+                <dd className="mono">~200k CU</dd>
               </div>
               <div>
                 <dt>Fee cap, in the program</dt>

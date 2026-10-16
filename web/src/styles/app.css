@@ -108,6 +108,20 @@
 .banner > button:hover {
   background: rgba(22, 10, 36, 0.06);
 }
+/* a real button in a banner ("Try again", "Check") keeps its own size, beside the text */
+.banner:has(> .btn) {
+  flex-wrap: wrap;
+  align-items: center;
+}
+.banner > .btn {
+  width: auto;
+  height: auto;
+  min-height: 44px;
+  margin: 0;
+  padding: 0 16px;
+  border-radius: 999px;
+  font-size: 14px;
+}
 
 /* tabs */
 .tabs {
@@ -658,19 +672,25 @@
   gap: 10px;
 }
 
-/* busy */
+/* busy: the card's content fades right back, and the step sits on its own opaque card, so no page text
+   ever runs through it (where a phone draws no backdrop blur, the veil alone used to let it show through) */
 .busy {
   position: absolute;
   inset: 0;
   z-index: 30;
   display: grid;
   place-items: start center;
-  padding-top: clamp(40px, 10vh, 110px);
-  border-radius: 28px;
-  background: color-mix(in srgb, var(--card) 88%, transparent);
+  padding: clamp(40px, 10vh, 110px) 12px 24px;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--card) 94%, transparent);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   animation: fadeIn 0.25s ease both;
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .busy {
+    background: color-mix(in srgb, var(--card) 97%, transparent);
+  }
 }
 @keyframes fadeIn {
   from {
@@ -685,8 +705,13 @@
   align-items: center;
   text-align: center;
   gap: 8px;
-  max-width: 320px;
-  padding: 20px;
+  width: min(340px, 100%);
+  padding: 24px 22px 20px;
+  border-radius: 24px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 30px 80px -30px rgba(22, 10, 36, 0.45);
 }
 .busy-mascot {
   width: 150px;
@@ -696,9 +721,38 @@
   border-radius: 28px;
 }
 .busy-step {
+  margin: 0;
   font-family: var(--serif);
   font-size: 22px;
   font-weight: 560;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.busy-in .muted {
+  margin: 0;
+}
+@media (max-width: 560px) {
+  .busy {
+    padding-top: clamp(24px, 6vh, 64px);
+  }
+  .busy-in {
+    top: 18vh;
+    padding: 20px 16px 16px;
+  }
+  .busy-mascot {
+    width: 104px;
+    margin-bottom: 4px;
+  }
+  .busy-mascot .eyes-tile {
+    border-radius: 22px;
+  }
+  .busy-step {
+    font-size: 20px;
+  }
+}
+/* a step that waits for a tap (Busy.tap): its button where the spinner goes */
+.busy-in .btn {
+  margin-top: 8px;
 }
 .spinner {
   margin-top: 8px;
@@ -1459,6 +1513,8 @@
   height: 22px;
   border-radius: 50%;
   background: var(--line);
+  /* (the step's number reads at 4.5:1 or more on its grey circle) */
+  color: var(--ink-2);
   font-size: 12px;
 }
 .qr-steps li.on {
@@ -1573,12 +1629,32 @@
   margin: 8px 0 0;
   text-align: left;
 }
+/* gentle notes before a payment that is easy to match on the chain (VS-04, VS-15) */
+.privacy-notes {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--paper-2);
+  text-align: left;
+}
+.privacy-notes p {
+  margin: 0 0 6px;
+}
+.privacy-notes p:last-of-type {
+  margin-bottom: 0;
+}
+.privacy-notes .link-btn {
+  margin-top: 6px;
+}
 .self-send {
   border-top: 1px solid var(--line);
   padding-top: 12px;
 }
 .self-send summary {
   cursor: pointer;
+  /* (a 24 px target at least) */
+  padding-block: 2px;
   font-size: 14px;
   font-weight: 600;
   color: var(--ink-2);
@@ -1690,7 +1766,8 @@
 }
 .job-chip.good {
   background: rgba(10, 138, 74, 0.12);
-  color: #0a8a4a;
+  /* (darker than the success green: 12 px text on its tint reads at 4.5:1 or more) */
+  color: #076b39;
 }
 .job-chip.bad {
   background: rgba(192, 38, 61, 0.1);
@@ -1698,7 +1775,7 @@
 }
 .job-chip.mute {
   background: var(--line);
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 .job-actions {
   grid-column: 1 / -1;
@@ -1726,7 +1803,8 @@
 .seg.seg-2 button small {
   display: block;
   font-size: 0.8em;
-  opacity: 0.75;
+  /* (small text: 4.5:1 or more on either button) */
+  opacity: 0.88;
 }
 @media (max-width: 420px) {
   .seg.seg-3 button {
@@ -1808,11 +1886,12 @@
   }
 }
 
-/* the public page that pays a request */
+/* the public page that pays a request: it starts below the fixed site header (72 px, 68 px under
+   1025 px), which is see-through until the page scrolls */
 .pay-wrap {
   display: grid;
   place-items: start center;
-  padding: clamp(28px, 6vw, 72px) 16px clamp(48px, 8vw, 96px);
+  padding: calc(72px + clamp(16px, 3vw, 28px)) 16px clamp(48px, 8vw, 96px);
 }
 .pay-card {
   width: min(760px, 100%);
@@ -2008,8 +2087,10 @@
 .quote-out strong {
   font-variant-numeric: tabular-nums;
 }
+/* (no fill after it ends: a filling opacity animation would make the panel a layer of its own, under the
+   page's fixed bars, and the sheets and the selection bar inside it would sit under them too) */
 .tab-panel {
-  animation: fadeIn 0.2s ease both;
+  animation: fadeIn 0.2s ease;
 }
 /* background work (a paid link moving in, a filled order's SOL coming home): one quiet line */
 .bg-line {
@@ -2690,18 +2771,56 @@
   padding: 14px 4px 4px;
   overflow-anchor: none;
 }
+/* the title and "+ Fund new wallets" share the first line; the summary runs the full width under them */
 .vw-head {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px 16px;
+  gap: 4px 12px;
+}
+.vw-head-text {
+  display: contents;
 }
 .vw-head h3 {
-  font-size: 22px;
+  grid-column: 1;
+  grid-row: 1;
+}
+.vw-head > .btn {
+  grid-column: 2;
+  grid-row: 1;
+}
+.vw-head-text > p {
+  grid-column: 1 / -1;
+}
+.vw-head h3 {
+  font-size: 24px;
+}
+@media (max-width: 360px) {
+  .vw-head h3 {
+    font-size: 20px;
+  }
 }
 .vw-head-text p {
   margin: 2px 0 0;
+}
+/* the summary, or a running batch's progress in its place: two lines of room either way, so the list never moves */
+.vw-head-sum {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 3em;
+  line-height: 1.5;
+}
+.vw-head-sum.vw-head-batch {
+  display: block;
+  overflow: visible;
+  color: var(--violet-ink);
+}
+/* a 44 px target on a text line */
+.vw-head-batch .link-btn {
+  padding-block: 12px;
+  margin-block: -12px;
 }
 .vw-intro {
   margin: 8px 0 0;
@@ -2711,66 +2830,159 @@
   align-items: center;
   min-height: 44px;
   margin: 8px 0 0;
+  padding-left: 12px;
 }
 .vw-all input {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   margin: 0;
 }
 /* its room is kept (so the list never moves), the control shows once two wallets can act */
 .vw-all.off {
   visibility: hidden;
 }
+.vw-list-top {
+  position: relative;
+}
+/* the keyboard's way past the wallets to the selection bar ("Skip to actions") and back ("Back to wallets"):
+   shown only while the keyboard is on it, over what's there (nothing moves) */
+.vw-skip {
+  position: absolute;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: var(--violet);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+  box-shadow: 0 10px 24px -12px rgba(22, 10, 36, 0.6);
+}
+.vw-skip:not(:focus) {
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  box-shadow: none;
+  opacity: 0;
+  pointer-events: none;
+}
+.vw-skip:focus-visible {
+  outline: 2px solid var(--violet-ink);
+  outline-offset: 2px;
+}
+.vw-skip-top {
+  top: 0;
+  right: 0;
+}
+/* over the bar's own top row (never above the bar, where a message can show) */
+.vw-skip-back {
+  top: 9px;
+  left: 12px;
+  right: 12px;
+  justify-content: center;
+}
+.vw-bulk:focus-visible {
+  outline: 2px solid var(--violet-ink);
+  outline-offset: 2px;
+}
 .vw-list {
   list-style: none;
-  margin: 10px 0 0;
+  margin: 6px 0 0;
   padding: 0;
   overflow-anchor: none;
 }
+/* one short row per wallet: a tick (or its number), then the row itself, which opens the wallet's sheet */
 .vw {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 6px 12px;
-  margin: 0 -8px;
-  padding: 14px 8px;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 68px;
   border-top: 1px solid var(--line);
   transition: background 0.2s;
 }
 .vw.picked {
   background: var(--violet-soft);
+  box-shadow: inset 3px 0 0 var(--violet);
 }
-.vw > .vw-tags,
-.vw > .vw-line,
-.vw > .vw-acts,
-.vw > .vw-panel {
-  grid-column: 2 / -1;
-}
-.vw-check {
-  width: 18px;
-  height: 18px;
-  margin: 4px 0 0;
-  accent-color: var(--violet);
-}
-/* a tick box with a 44 px target around it, in its 20 px column */
 .vw-hit {
   display: flex;
+  align-items: center;
   justify-content: center;
   width: 44px;
   height: 44px;
-  margin: -10px -12px 0;
-  padding-top: 10px;
   cursor: pointer;
 }
-.vw-id {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.vw-check {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--violet);
+}
+.vw-avatar {
+  justify-self: center;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--violet-soft);
+  color: var(--violet-ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+.vw-open {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "id bal" "line usd" "tags tags";
+  align-items: baseline;
+  gap: 2px 12px;
+  width: 100%;
   min-width: 0;
+  /* with the row's 1 px rule above it, 68 px a row */
+  min-height: 67px;
+  padding: 10px 8px 10px 4px;
+  border: 0;
+  border-radius: 12px;
+  line-height: 20px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+/* every line of the row on a 20 px line, so a row is 68 px (two lines) whatever its text */
+.vw-open > .vw-id,
+.vw-open > .vw-bal,
+.vw-open > .vw-usd {
+  line-height: 20px;
+}
+.vw-open:hover {
+  background: var(--paper-2);
+}
+.vw-open:active {
+  background: var(--paper-2);
+}
+.vw-id {
+  grid-area: id;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .vw-name {
-  font-family: var(--serif);
-  font-size: 17px;
+  font-family: var(--sans);
+  font-size: 15px;
   font-weight: 600;
 }
 .vw-label {
@@ -2779,54 +2991,103 @@
   font-weight: 500;
   color: var(--ink-2);
 }
-.vw-addr {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
-}
-.vw-addr .link-btn {
-  font-size: 12.5px;
-  padding-block: 12px;
-  margin-block: -12px;
-}
 .vw-bal {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
+  grid-area: bal;
   text-align: right;
 }
 .vw-bal strong {
   font-family: var(--mono);
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
 }
-.vw-tags {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
+/* SOL on its way to a wallet not read yet: its amount, quieter */
+.vw-bal strong.coming {
+  color: var(--ink-3);
 }
-.vw-tags .chip {
-  gap: 6px;
-  font-size: 13px;
+.vw-usd {
+  grid-area: usd;
+  text-align: right;
+  white-space: nowrap;
 }
-/* the status line keeps its room whether it says something or not, so a step or a result never moves the rows below */
+/* the status line: exactly one line on the row (its full text is in the sheet, and in the row's title) */
 .vw-line {
+  grid-area: line;
+  display: block;
+  min-width: 0;
   margin: 0;
-  min-height: 3.2em;
-  font-size: 13.5px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* a row with no dollar figure (SOL arriving, nothing priced): its status line takes the room under the balance too */
+.vw-open.no-usd > .vw-line {
+  grid-column: 1 / -1;
+}
+/* a chip that says it all: its longer explanation is in the sheet */
+.vw-line .vw-quiet {
+  display: none;
+}
+.vw-line .job-chip,
+.vw-line-full .job-chip {
+  margin-right: 2px;
 }
 .vw-line .job-chip {
-  margin-right: 4px;
+  padding-block: 1px;
 }
-/* a link in the status line keeps a finger-sized target without making the line taller */
-.vw-line .link-btn {
-  padding-block: 12px;
-  margin-block: -12px;
+.vw-line .spinner,
+.vw-line-full .spinner {
+  display: inline-block;
+  margin: 0 6px 0 0;
+  vertical-align: -2px;
+}
+.vw-mark {
+  display: inline-block;
+  margin-right: 4px;
+  vertical-align: -2px;
+}
+.vw-mark.ok {
+  color: var(--ok);
+  font-weight: 700;
+}
+svg.vw-mark {
+  color: var(--bad);
+}
+.vw-tags {
+  grid-area: tags;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 4px;
+  overflow: hidden;
+}
+/* the chips give way (clipped at the right) before the note beside them does */
+.vw-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+/* tokens with no price yet: under the dollar figure they're left out of */
+.vw-unpriced {
+  flex: none;
+  margin-left: auto;
+  padding-left: 8px;
+  font-size: 12.5px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+.vw-tags .chip {
+  flex: none;
+  gap: 6px;
+  padding: 3px 10px 3px 4px;
+  font-size: 12.5px;
+  white-space: nowrap;
 }
 .vw-next {
   color: var(--violet-ink);
@@ -2837,7 +3098,7 @@
 .vw-bad {
   color: var(--bad);
 }
-/* a step in progress takes exactly one line of the status line, like text */
+/* a step in progress takes exactly one line, like text */
 .vw-work {
   display: inline-flex;
   align-items: center;
@@ -2850,38 +3111,127 @@
   margin: 0;
   flex: none;
 }
-/* in a row's status line a step wraps like the text around it (a long one on a phone takes a second line, never over the chip) */
-.vw-line .vw-work {
-  display: inline;
-  height: auto;
+/* an emptied wallet: muted, with Hide */
+.vw > .vw-acts {
+  grid-column: 3;
+  padding-right: 8px;
 }
-.vw-line .vw-work .spinner {
-  display: inline-block;
-  margin-right: 6px;
-  vertical-align: -2px;
-}
-.vw-acts {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 2px 18px;
-}
-.vw-acts .link-btn,
-.vw-more .link-btn {
+.vw > .vw-acts .link-btn {
   min-height: 44px;
-  white-space: nowrap;
 }
-.vw-acts .btn {
-  min-height: 40px;
-  padding: 0 16px;
+.vw.done .vw-name,
+.vw.done .vw-bal,
+.vw.done .vw-avatar {
+  color: var(--ink-3);
+}
+.vw.done .vw-avatar {
+  background: var(--paper-2);
+}
+
+/* a wallet's sheet */
+.vw-sheet-addr {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.vw-sheet-addr .link-btn {
+  min-height: 44px;
+}
+.vw-sheet-bal {
+  margin: 2px 0 8px;
+  font-size: 15px;
+}
+.vw-sheet-bal strong {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 600;
+}
+.vw-sheet-tokens {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+.vw-sheet-tokens li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  border-top: 1px solid var(--line);
+}
+.vw-sheet-tok {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+.vw-line-full {
+  margin: 8px 0 4px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.vw-line-full .link-btn {
+  padding-block: 12px;
+  margin-block: -12px;
+}
+.vw-sheet .vw-acts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+.vw-sheet .vw-acts > .link-btn {
+  align-self: center;
+  min-height: 44px;
+}
+.vw-more {
+  display: flex;
+  flex-direction: column;
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.vw-more-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 0 4px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--ink);
+  font: 500 15px var(--sans);
+  text-align: left;
+  cursor: pointer;
+}
+.vw-more-row::after {
+  content: "›";
+  color: var(--ink-3);
+  font-size: 22px;
+  line-height: 1;
+}
+.vw-more-row:hover {
+  background: var(--paper-2);
+}
+.vw-more-row:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .vw-panel {
   margin-top: 2px;
 }
-.vw-more {
+.vw-panel.send-out {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0 18px;
+  flex-direction: column;
+  gap: 10px;
+}
+.vw-panel.secret code {
+  display: block;
+  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 .vw-rename {
   display: flex;
@@ -2898,50 +3248,192 @@
   flex-basis: 100%;
   margin: 0;
 }
-.vw.done .vw-name,
-.vw.done .vw-bal {
-  color: var(--ink-3);
+.vw-why {
+  margin: 0 0 10px;
 }
+.vw-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--paper-2);
+}
+.vw-left p {
+  margin: 0;
+}
+.vw-bulk-sheet .sheet-body > * + * {
+  margin-top: 10px;
+}
+
+/* the selection bar: a fixed 124 px whatever it says, so it never covers more than it did a moment ago */
 .vw-bulk {
   position: sticky;
   bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
   z-index: 5;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: 44px 52px;
   gap: 8px;
+  height: 124px;
+  box-sizing: border-box;
   margin-top: 12px;
-  padding: 12px 14px;
+  padding: 9px 12px;
   border: 1px solid var(--line-strong);
   border-radius: 16px;
   background: var(--card);
   box-shadow: 0 12px 28px -18px rgba(22, 10, 36, 0.5);
 }
-/* above the messages at the bottom of the screen while they show */
-.dock-on .vw-bulk {
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 100px);
+/* just above the message at the bottom of the screen while it shows, however tall it is (--dock-h: its height, set
+   by the dock; the dock sits 12 px from the bottom, the bar 8 px above it) */
+.app-page.dock-on .vw-bulk {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 20px + var(--dock-h, 80px));
 }
-/* a batch started from the bar takes the bar's place, at least as tall, so nothing above it moves */
+/* a control the keyboard reaches never stops under the message at the bottom of the screen or the selection bar:
+   it's brought into view above them */
+html:has(.app-page.dock-on) {
+  scroll-padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 28px + var(--dock-h, 80px));
+}
+html:has(.app-page .vw-bulk) {
+  scroll-padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 152px);
+}
+html:has(.app-page.dock-on .vw-bulk) {
+  scroll-padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 160px + var(--dock-h, 80px));
+}
+/* a batch's card sits below the list, so starting or ending one never moves the wallets */
 .vw-batch {
   display: flow-root;
-}
-/* only the short bar stays on screen; opened, its form sits in the page below the list instead of over it */
-.vw-bulk.open {
-  position: static;
 }
 .vw-bulk-top {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 4px;
+  min-width: 0;
+}
+.vw-bulk-x {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--ink);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+.vw-bulk-x:hover {
+  background: var(--paper-2);
+}
+.vw-bulk-sum {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: 14px;
 }
-.vw-bulk-top .link-btn {
+.vw-bulk-all {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-height: 44px;
+  padding: 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.vw-bulk-all input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--violet);
 }
 .vw-bulk-acts {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+}
+.vw-bulk-act {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 52px;
+  padding: 0 6px;
+  border: 1.5px solid var(--line-control);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--ink);
+  font: 600 14px/1.2 var(--sans);
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+.vw-bulk-act:hover {
+  background: var(--paper-2);
+}
+.vw-bulk-act .l,
+.vw-bulk-act .c {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.vw-bulk-act .c {
+  font-size: 12px;
+  font-weight: 500;
+}
+.vw-bulk-act.primary {
+  border-color: var(--violet);
+  background: var(--violet);
+  color: #fff;
+}
+.vw-bulk-act.primary:hover {
+  background: var(--violet);
+  filter: brightness(1.08);
+}
+.vw-bulk-act[aria-disabled="true"] {
+  opacity: 0.55;
+}
+.vw-bulk-wait {
+  display: flex;
+  align-items: center;
+  gap: 4px 10px;
+  height: 52px;
+  margin: 0;
+  overflow: hidden;
+  line-height: 1.3;
+}
+.vw-bulk-wait > span {
+  min-width: 0;
+}
+.vw-bulk-wait .link-btn {
+  flex: none;
+  min-height: 44px;
+}
+@media (max-width: 400px) {
+  /* (9 px top and bottom: 1 + 9 + 44 + 8 + 52 + 9 + 1 = 124, the rows never spill past the bar) */
+  .vw-bulk {
+    padding: 9px 8px;
+  }
+  .vw-bulk-act {
+    padding: 0 4px;
+  }
+  .vw-bulk-act .l {
+    font-size: 13px;
+  }
+  /* "12 selected · 0.3627 SOL" in full beside × and All on a phone */
+  .vw-bulk-sum {
+    font-size: 13px;
+  }
+  .vw-bulk-all {
+    padding: 0 4px 0 8px;
+  }
 }
 .vw-emptied {
   margin-top: 14px;
@@ -2980,8 +3472,7 @@
   margin: 14px 0 0;
 }
 .vw-emptied .link-btn,
-.vw-foot .link-btn,
-.vw-fund > .link-btn {
+.vw-foot .link-btn {
   min-height: 44px;
 }
 .vw-fund {
@@ -2994,8 +3485,55 @@
 .form.vw-fund {
   padding: 16px;
 }
+/* in its sheet the form needs no card of its own */
+.sheet .form.vw-fund {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
 .vw-fund p {
   margin: 0 0 10px;
+}
+.vw-fund-status p {
+  margin: 0;
+}
+.vw-fund-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.vw-fund-title {
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 15px;
+}
+.vw-fund-title .vw-mark {
+  flex: none;
+  margin: 0;
+}
+.vw-fund-text {
+  margin-top: 4px !important;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.vw-fund-text.open {
+  display: block;
+}
+.vw-fund-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+.vw-fund-acts .link-btn {
+  min-height: 44px;
 }
 .vw-fund-row {
   display: flex;
@@ -3032,41 +3570,253 @@
 .vw-summary p {
   margin: 0 0 10px;
 }
-@media (max-width: 480px) {
-  /* a result on a phone wraps further: three lines kept, so it never pushes the rows below */
-  .vw-line {
-    min-height: 4.8em;
-  }
-  /* the balance's second line wraps as its figures change: two lines kept */
+/* the balance's second line says what's moving and the total, so its length changes as money moves, and nothing under
+   it may move as it does. It never takes more than two lines. On a phone, where it often takes two, both are always
+   kept for it. On a wider screen it keeps one while it says one thing (it fits), with no empty line under it, and two
+   once it can say two (what's moving, and the total with the Vision wallets: `.two`, see balanceLineRows) */
+.bal-sub {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.5;
+}
+@media (max-width: 560px) {
   .bal-sub {
     min-height: 3em;
-    line-height: 1.5;
   }
-  .vw-acts {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
+}
+@media (min-width: 561px) {
+  .bal-sub:not(.two) {
+    -webkit-line-clamp: 1;
   }
-  .vw-acts .btn,
-  .vw-acts .link-btn {
-    width: 100%;
-    min-height: 44px;
-    padding: 4px 10px;
-    border-radius: 999px;
-    white-space: normal;
-    text-align: center;
-    line-height: 1.2;
+  .bal-sub.two {
+    min-height: 3em;
   }
-  .vw-acts .link-btn {
-    display: inline-flex;
+}
+
+/* ───────── a sheet over the page (components/app/Sheet.tsx): a wallet, a token, the selected wallets ───────── */
+.sheet-back {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(10, 4, 18, 0.55);
+  animation: fadeIn 0.15s ease both;
+}
+.sheet {
+  width: 100%;
+  max-width: 520px;
+  max-height: min(88vh, 760px);
+  /* (the screen as it shows now: a phone's browser bars never push the footer off it) */
+  max-height: min(88dvh, 760px);
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-bottom: 0;
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -24px 60px -20px rgba(0, 0, 0, 0.6);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  animation: sheetUp 0.22s var(--ease) both;
+  text-align: left;
+}
+.sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 56px;
+  padding: 6px 6px 0 16px;
+}
+.sheet-head:has(> .sheet-btn:first-child) {
+  padding-left: 6px;
+}
+.sheet-head h2 {
+  flex: 1;
+  min-width: 0;
+  font-size: 20px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.sheet-head h2:focus {
+  outline: none;
+}
+.sheet-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  margin-right: 6px;
+}
+.sheet-btn {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: inherit;
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+}
+.sheet-btn:hover {
+  background: var(--paper-2);
+}
+/* the only part that scrolls, above the footer (never under it); a control the keyboard reaches is brought fully above it */
+.sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: 12px 16px;
+  padding: 4px 16px 16px;
+}
+.sheet-body > p {
+  margin: 0 0 10px;
+}
+.sheet .tiny {
+  text-align: left;
+}
+.sheet-foot {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--line);
+  transition: box-shadow 0.15s;
+}
+/* more below the fold: the footer lifts over the body's edge, so what reaches it reads as "scroll for more" */
+.sheet.more .sheet-foot {
+  box-shadow: 0 -12px 18px -12px rgba(10, 4, 18, 0.42);
+}
+.sheet-foot > p {
+  margin: 0;
+}
+.sheet-foot .confirm {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.sheet-foot .confirm .btn,
+.sheet-foot .confirm .link-btn {
+  min-height: 44px;
+}
+/* the page under an open sheet doesn't scroll (on body: its overflow is the one the window takes, so the
+   sticky header stays where it is) */
+html.sheet-open body {
+  overflow: hidden;
+}
+@keyframes sheetUp {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+@media (min-width: 600px) {
+  .sheet-back {
     align-items: center;
-    justify-content: center;
-    border: 1px solid var(--line-strong);
-    text-decoration: none;
+    padding: 24px;
   }
-  .vw-bulk-acts .btn {
-    flex: 1 1 100%;
+  .sheet {
+    max-width: 460px;
+    border-radius: 20px;
+    border-bottom: 1px solid var(--line-strong);
   }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet,
+  .sheet-back {
+    animation: none;
+  }
+}
+
+/* a placeholder while a figure is being read */
+.skel {
+  display: inline-block;
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--card) 0%, var(--card-2, var(--paper-2)) 50%, var(--card) 100%);
+  background-size: 200% 100%;
+  animation: skel 1.2s linear infinite;
+}
+@keyframes skel {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skel {
+    animation: none;
+  }
+}
+
+/* the activity history by day (the extension's Activity screen) */
+.activity-day-h {
+  margin: 14px 0 2px;
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--ink-3);
+}
+.activity-g > .activity-day:first-child .activity-day-h {
+  margin-top: 4px;
+}
+.activity-g .activity {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.activity-rows li {
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 2px 12px;
+}
+.a-ico {
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--violet-soft);
+  color: var(--violet-ink);
+}
+.activity-rows .a-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  padding-top: 7px;
+}
+.activity-rows .a-when {
+  padding-top: 8px;
+  white-space: nowrap;
+}
+.activity-rows .a-link {
+  grid-column: 2 / -1;
+}
+.activity-rows .a-link .link-btn {
+  min-height: 44px;
+}
+.activity-more {
+  min-height: 44px;
+  margin-top: 4px;
+}
+.activity-empty {
+  margin: 4px 0;
 }
 
 /* ───────── a batch: one action across several Vision wallets, each row's status changing in place ───────── */
@@ -3114,7 +3864,7 @@
 }
 /* one line each, whatever it says, so the rows below never move; a reason opens with a tap */
 .batch-st {
-  grid-column: 1 / -1;
+  grid-column: 1;
   min-width: 0;
   min-height: 1.6em;
   line-height: 1.6;
@@ -3212,16 +3962,6 @@
 .pacing .check {
   margin-bottom: 0;
 }
-.vw-bulk-note {
-  margin: 0;
-  text-align: left;
-}
-.vw-bulk-go {
-  margin-top: 4px;
-}
-.vw-bulk-go .when-title {
-  font-size: 13px;
-}
 .batch-say {
   display: grid;
 }
@@ -3234,27 +3974,230 @@
 .batch-acts {
   min-height: 44px;
 }
-.vw-bulk-what {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-}
-.vw-bulk-go > .link-btn {
-  align-self: flex-start;
-  min-height: 44px;
-}
-/* a transaction link sits in the status line like text, so a finished row is exactly as tall as a waiting one */
+/* every row's status line is as tall as a done row's link, so a finished row is exactly as tall as a waiting one */
 .batch-st {
-  height: 1.6em;
+  height: 32px;
+  line-height: 32px;
 }
 .batch-st:has(.batch-why.open) {
   height: auto;
+  line-height: 1.6;
 }
-.batch-st .link-btn {
-  min-height: 0;
-  padding: 0;
-  vertical-align: baseline;
+.batch-link {
+  grid-column: 2;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  min-height: 32px;
 }
-.vw-bulk-acts[hidden] {
-  display: none;
+/* a 44 px target in a 32 px line */
+.batch-link .link-btn {
+  padding-block: 6px;
+  margin-block: -6px;
+  white-space: nowrap;
+}
+
+/* ───────── "Use in the Chrome extension" ───────── */
+.xlink-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 16px 0 0;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1.5px solid color-mix(in srgb, var(--violet) 45%, transparent);
+  background: var(--violet-soft);
+}
+.xlink-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+.xlink-x {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: -12px -10px -12px 0;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: inherit;
+  font-size: 22px;
+  line-height: 1;
+}
+.xlink-x:hover {
+  background: rgba(22, 10, 36, 0.06);
+}
+.xlink .btn {
+  margin-top: 10px;
+}
+.xlink .small + .small,
+.xlink .btn + .small {
+  margin-top: 10px;
+}
+
+/* the restricted-region screen (components/Restricted.tsx): the app, the payment page, the extension and the 451 notice */
+.restricted {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 28px 22px 26px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+.restricted h1,
+.restricted h2 {
+  margin: 0;
+  font-size: clamp(26px, 3.4vw, 36px);
+  line-height: 1.15;
+}
+.restricted h1:focus,
+.restricted h2:focus {
+  outline: none;
+}
+.restricted p {
+  margin: 0;
+  color: var(--ink-2);
+}
+.restricted-ico {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  background: var(--violet-soft);
+  color: var(--violet-ink);
+}
+.restricted-credit a {
+  color: var(--ink-3);
+}
+.app-main > .restricted,
+.pay-wrap > .restricted {
+  margin-top: 18px;
+}
+
+/* a wallet or recipient on the sanctions list (components/app/Listed.tsx), and the viewing-key question in Your records */
+.listed {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.listed h2 {
+  margin: 0;
+  font-size: clamp(24px, 3vw, 32px);
+}
+.listed p {
+  margin: 0;
+  color: var(--ink-2);
+}
+.vk-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--paper-2);
+}
+.vk-ask p {
+  margin: 0;
+}
+/* "Check all my sending addresses", "Download statement": their words wrap rather than run past a narrow card */
+.records-hops .btn,
+.panel > .btn.small-btn {
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.25;
+}
+.vk-ask .vk-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+/* "Prove I control this address" (components/app/ProveControl.tsx) and the /verify page */
+.prove {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.prove textarea,
+.verify-form textarea {
+  width: 100%;
+  min-height: 72px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+  resize: vertical;
+}
+.prove .mono,
+.verify-out .mono {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+.verify-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 12px 0 18px;
+}
+.verify-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-weight: 600;
+}
+.verify-form input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+}
+.verify-out {
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--paper-2);
+}
+.verify-out.ok {
+  border-left: 4px solid var(--ok);
+}
+.verify-out.bad {
+  border-left: 4px solid var(--bad);
+}
+.figures {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0 6px;
+  font-size: 15px;
+}
+.figures th,
+.figures td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+}
+.figures th:first-child,
+.figures td:first-child {
+  text-align: left;
+}
+.figures-wrap {
+  overflow-x: auto;
 }

@@ -4,5 +4,6 @@ declare module "snarkjs" {
     verify(vk: object, publicSignals: string[], proof: object, logger?: unknown): Promise<boolean>;
   };
   export const zKey: any;
+  export const wtns: any;
   export const powersOfTau: any;
 }

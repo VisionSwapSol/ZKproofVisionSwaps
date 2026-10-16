@@ -15,7 +15,33 @@ import type { SpendProof } from "./prover.ts";
 
 export const BPF_UPGRADEABLE_LOADER = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
 export const ATTESTATION_TAG = new TextEncoder().encode("VSA1");
-export const TRANSACT_CU = 450_000;
+/**
+ * Compute units a pool spend asks for (VS-53). Every transact on mainnet so far (254 of them, read
+ * in October 2026) used at most 214,975 units in all (the proof check, two tree inserts, two
+ * nullifier accounts: fixed work that depends on public data only), and the upgrade rehearsal measured
+ * its transact_v2 at up to 209,993, so this leaves about 30% on top, and the largest stays under the
+ * alert line. It was 450,000, more than twice the use.
+ */
+export const TRANSACT_CU = 280_000;
+/**
+ * The compute figure the relayer's published fee is worked out from: the earlier request, kept so
+ * the fee doesn't move when the request got smaller (a proof carries the fee it was made with, and a
+ * change would send every held proof through the fee's grace period). The relayer simply pays a
+ * little less priority than the fee allows for.
+ */
+export const TRANSACT_FEE_CU = 450_000;
+/**
+ * Compute units per settle in a batch: a settle on mainnet has used at most 40,449 units in all, and
+ * the upgrade rehearsal measured its settles at up to 44,483, so this leaves 30% on top of the largest
+ * and keeps them all under the alert line (it was 60,000).
+ */
+export const SETTLE_CU = 58_000;
+/** A measured spend or settle using more than this share of what it asked for is reported: the margin is getting thin. */
+export const CU_ALERT_SHARE = 0.8;
+/** Whether `used` compute units (from a simulation or a landed transaction) come close to the `limit` asked for. */
+export function cuNearLimit(used: number | null | undefined, limit: number): boolean {
+  return typeof used === "number" && Number.isFinite(used) && used > limit * CU_ALERT_SHARE;
+}
 
 const te = new TextEncoder();
 const disc = (kind: string, name: string) => sha256(te.encode(`${kind}:${name}`)).slice(0, 8);

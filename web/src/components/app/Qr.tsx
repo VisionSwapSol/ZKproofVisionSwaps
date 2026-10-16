@@ -40,7 +40,7 @@ export function QrDeposit({ st }: { st: State }) {
   const here = st.deposits.find((d) => d.index === st.qrIndex);
   const bal = here?.lamports ?? 0n;
   const mobile = isMobile();
-  const delayMin = Math.max(1, Math.round((Number(pool.depositDelaySlots) * 0.4) / 60));
+  const delayMin = engine.slotMinutes(Number(pool.depositDelaySlots));
   // the pool isn't taking deposits (paused, or full for now): what arrives waits here until it is
   const closed = pool.depositsPaused || (pool.tvlRoom != null && BigInt(pool.tvlRoom) < BigInt(pool.minDeposit));
   const eta = engine.moveEta(st.qrIndex) ?? 0;

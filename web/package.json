@@ -2,13 +2,16 @@
   "name": "@visionswap/web",
   "private": true,
   "version": "0.1.0",
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "scripts": {
     "dev": "node scripts/copy-zk.mjs && node ../scripts/sync-excerpt.mjs && vite",
-    "build": "node scripts/copy-zk.mjs && node ../scripts/sync-excerpt.mjs && tsc --noEmit && vite build",
+    "build": "node scripts/copy-zk.mjs && node ../scripts/sync-excerpt.mjs && tsc --noEmit && vite build && npm run prerender",
+    "prerender": "vite build --ssr src/entry-prerender.tsx --outDir build/prerender --emptyOutDir && node scripts/prerender.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test test/*.test.ts"
+    "test": "node --import tsx --test test/*.test.ts",
+    "terms:archive": "node --import tsx scripts/terms-archive.ts"
   },
   "dependencies": {
     "react": "^19.3.0",
@@ -16,6 +19,8 @@
     "three": "^0.186.1",
     "@solana/wallet-adapter-base": "^0.9.28",
     "@solana/wallet-adapter-react": "^0.15.40",
+    "@solana/wallet-standard-wallet-adapter-react": "1.1.7",
+    "@solana-mobile/wallet-adapter-mobile": "2.3.0",
     "@solana/web3.js": "^1.99.0",
     "@visionswap/sdk": "1.0.0",
     "buffer": "^6.0.3"

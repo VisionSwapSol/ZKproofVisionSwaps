@@ -431,7 +431,7 @@ test("admin limits: fee cap, pause, deposit cap, admin handover", async () => {
 });
 
 test("no limits: a deposit far above the old caps settles and leaves in one withdrawal", async () => {
-  const NO_LIMIT = 2n ** 64n - 1n; // what 3-ADMIN option 15 sets: no largest deposit, no pool cap
+  const NO_LIMIT = 2n ** 64n - 1n; // the admin setting for no largest deposit and no pool cap
   await send([pool.updateConfig(admin.publicKey, params({ maxDeposit: NO_LIMIT, tvlCap: 0n }))], [admin]);
   const c = await fetchConfig(conn, pool);
   assert.equal(c.maxDeposit, NO_LIMIT);

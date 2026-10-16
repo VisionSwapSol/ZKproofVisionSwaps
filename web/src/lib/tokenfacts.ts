@@ -30,6 +30,18 @@ export function stuckToken(mint: string): boolean {
   return !!r && r.last - r.first >= NO_ROUTE_GAP_MS;
 }
 
+/**
+ * An amount rounded down to one significant digit (7,654,321 -> 7,000,000). A quote that only asks
+ * whether a token can sell, or what transfer tax it charges, is sent with this rather than the exact
+ * holding: an exact token balance next to its mint can single out the wallet that holds it.
+ */
+export function bucketAmount(x: bigint): bigint {
+  if (x <= 0n) return 0n;
+  let p = 1n;
+  while (p * 10n <= x) p *= 10n;
+  return (x / p) * p;
+}
+
 /** One probe quote per token at most this often, however often the sell form asks (typing can, per keystroke). */
 export const PROBE_GAP_MS = 30_000;
 const probed = new Map<string, number>();

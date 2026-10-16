@@ -1,20 +1,25 @@
 {
   "name": "visionswap",
   "private": true,
-  "version": "1.0.0",
-  "description": "Private SOL sends and private token buys/sells on Solana, built on a zero-knowledge shielded pool.",
+  "version": "1.10.1",
+  "description": "VisionSwap: private SOL payments and private trading of any Solana token, built on a zero-knowledge shielded pool. The Solana program, circuit, SDK, web app and Chrome extension.",
+  "license": "SEE LICENSE IN LICENSE",
+  "homepage": "https://visionswap.net",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VisionSwapSol/ZKproofVisionSwaps.git"
+  },
   "workspaces": [
     "sdk",
-    "server",
-    "web"
+    "web",
+    "extension"
   ],
   "scripts": {
-    "test": "npm run test -w sdk && npm run test -w server && npm run test -w web",
-    "typecheck": "npm run typecheck -w sdk && npm run typecheck -w server && npm run typecheck -w web",
+    "test": "npm run test -w sdk && npm run test -w web && npm run test -w extension",
+    "typecheck": "npm run typecheck -w sdk && npm run typecheck -w web && npm run typecheck -w extension",
     "build": "npm run build -w web",
-    "start": "npm run start -w server",
     "dev:web": "npm run dev -w web",
-    "dev:server": "npm run dev -w server"
+    "build:extension": "npm run build -w extension"
   },
   "engines": {
     "node": ">=22.13"

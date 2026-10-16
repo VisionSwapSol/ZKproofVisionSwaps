@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { WalletReadyState } from "@solana/wallet-adapter-base";
+import { WalletReadyState, type WalletName } from "@solana/wallet-adapter-base";
 import { Header } from "../components/Header";
 import { Footer } from "../components/Footer";
 import { Icon } from "../components/Icon";
@@ -12,10 +12,17 @@ import { Wallets, isMobile, useEngine } from "../lib/wallet";
 import { conn, confirmSig, parseSol, sendAndConfirm, short, signatureOf, StillPending } from "../lib/net";
 import { copyText } from "../lib/copy";
 import { engine, fmtUp, solText } from "../lib/engine";
+import { TermsGate, useTermsStatus } from "../components/TermsGate";
+import { Restricted, useRegion } from "../components/Restricted";
+import { useNoTouchToSearch } from "../lib/tapsearch";
 
 type Req = { to: string; amount: bigint | null; note: string };
 
-/** The request lives after "#" in the link, so no server ever sees who asked whom for what. */
+/**
+ * The request lives after "#" in the link, so opening the link never sends it to a server. Paying
+ * it from this page does go through VisionSwap's chain gateway (/api/rpc): the payer's transfer to
+ * the requester's deposit address, and the checks on it, like any payment made on the site.
+ */
 function readRequest(): Req | null {
   const q = new URLSearchParams(location.hash.replace(/^#/, ""));
   try {
@@ -33,9 +40,8 @@ function readRequest(): Req | null {
  * something VisionSwap vouches for.
  */
 export default function PayPage() {
-  useEffect(() => {
-    document.title = "VisionSwap · Payment request";
-  }, []);
+  // taps on the request's address and message never open Chrome's Touch to Search (lib/tapsearch.ts)
+  useNoTouchToSearch();
   return (
     <Wallets>
       <div className="page pay-page">
@@ -63,7 +69,17 @@ function PayBody() {
   // a link that has been paid before says so, so nobody pays twice by accident
   const [seen, setSeen] = useState(false);
   const [again, setAgain] = useState(false);
-  const { wallets, select, wallet, publicKey, connecting, connected, sendTransaction, signTransaction, disconnect } = useWallet();
+  const { wallets, select, wallet, publicKey, connecting, connected, connect, sendTransaction, signTransaction, disconnect } = useWallet();
+  // connecting a wallet here uses the website, so the Terms window comes first (once per device, as in the app)
+  const termsOk = useTermsStatus() === "current";
+  const [askTerms, setAskTerms] = useState<WalletName | null>(null);
+  const pickWallet = (name: WalletName) => {
+    setErr(null);
+    engine.clearError();
+    // the wallet picked on an earlier visit is already chosen: connect it again (choosing it again would do nothing)
+    if (wallet?.adapter.name === name) connect().catch(() => {});
+    else select(name);
+  };
   // a wallet error shown here stays here: one left over from the app isn't shown to the payer, and one from here never turns up in the app afterwards (cleared before the first paint)
   useLayoutEffect(() => {
     engine.clearError();
@@ -81,6 +97,15 @@ function PayBody() {
   // the least the address can take in: less would sit there and never reach the private balance
   const min = engine.minReceive();
   const below = !!lamports && min != null && lamports < min;
+  // paying from here moves money: not offered where this connection comes from (the server refuses it too)
+  const regionInfo = useRegion();
+  if (regionInfo.restricted) {
+    return (
+      <section className="pay-wrap">
+        <Restricted info={regionInfo} heading="h1" />
+      </section>
+    );
+  }
   if (!req) {
     return (
       <section className="pay-wrap">
@@ -260,9 +285,8 @@ function PayBody() {
                       disabled={connecting}
                       onClick={() => {
                         // picking a wallet connects it (autoConnect); its errors come back through the engine
-                        setErr(null);
-                        engine.clearError();
-                        select(w.adapter.name);
+                        if (termsOk) pickWallet(w.adapter.name);
+                        else setAskTerms(w.adapter.name);
                       }}
                     >
                       <img src={w.adapter.icon} alt="" width={24} height={24} />
@@ -271,6 +295,14 @@ function PayBody() {
                   ))}
                 </div>
               ) : null}
+              <p className="tiny pay-fine pay-terms">
+                Paying sends a standard Solana transfer to the requester's address, and it is final. VisionSwap doesn't check or vouch for the
+                person asking, and if your payment fails screening it stays at their address and VisionSwap doesn't send it back to you. The{" "}
+                <a href="/terms" target="_blank" rel="noreferrer noopener">
+                  Terms of use
+                </a>{" "}
+                apply.
+              </p>
               <div className="pay-addr">
                 <span className="small muted">Or send SOL to this address from any wallet or exchange:</span>
                 <code className="mono" translate="no">
@@ -298,6 +330,17 @@ function PayBody() {
               {err ? <p className="warn">{err}</p> : !connected && !connecting && st.error ? <p className="warn">{st.error}</p> : null}
             </div>
           </div>
+        )}
+        {askTerms && (
+          <TermsGate
+            purpose="pay"
+            onAccept={() => {
+              const name = askTerms;
+              setAskTerms(null);
+              pickWallet(name);
+            }}
+            onCancel={() => setAskTerms(null)}
+          />
         )}
         {!sent && (!seen || again) && (
           <div className="pay-private">

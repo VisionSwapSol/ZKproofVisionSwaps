@@ -8,9 +8,12 @@ import { CodeBand } from "../components/CodeBand";
 import { LiveStats } from "../components/LiveStats";
 import { Tilt } from "../components/Tilt";
 import { DemoVideo } from "../components/DemoVideo";
+import { ReleaseCountdown } from "../components/ReleaseCountdown";
+import { AndroidHeroButton, GetAppSection } from "../components/GetApp";
 import { Icon, type IconName } from "../components/Icon";
 import { useRise } from "../lib/rise";
 import { FEES } from "../lib/config";
+import { LANDING_FAQ } from "../lib/landing-faq";
 
 /** Why holding $VSWAP shares in VisionSwap's revenue: the same facts as the Tokenomics page. */
 const VSWAP_WHY: { icon: IconName; title: string; text: string }[] = [
@@ -19,7 +22,6 @@ const VSWAP_WHY: { icon: IconName; title: string; text: string }[] = [
   { icon: "flame", title: "Every buyback is burned", text: "Tokens bought back are burned for good, so the supply only gets smaller." },
   { icon: "trend", title: "A bigger share over time", text: "Your share is your $VSWAP divided by the total supply. As burns shrink the supply, the same holding becomes a bigger share." },
 ];
-/** The tokenomics video's stations, in seconds. */
 const VSWAP_CHAPTERS: [string, number][] = [
   ["Fees", 7.2],
   ["Buyback", 14.4],
@@ -35,9 +37,6 @@ export function Landing() {
   const [shield, setShield] = useState(0);
   const [network, setNetwork] = useState<string | null>(null);
   useRise(root);
-  useEffect(() => {
-    document.title = "VisionSwap · Private sends and swaps on Solana";
-  }, []);
 
   // the glasses slide on as the hero scrolls away
   useEffect(() => {
@@ -68,7 +67,7 @@ export function Landing() {
             </h1>
             <p className="lede rise" style={{ ["--d" as string]: "160ms" }}>
               Private transfers, buys and sells for your Solana wallet. VisionSwap lets you send SOL and buy or sell any
-              token without a trail leading back to your funding wallet.
+              token from a shared pool, which keeps the deposit that paid hidden among everyone else's.
             </p>
             <div className="hero-cta rise" style={{ ["--d" as string]: "240ms" }}>
               <a className="btn" href="/app">
@@ -77,6 +76,7 @@ export function Landing() {
               <a className="btn ghost" href="/app?start=qr">
                 No wallet? Use a QR code
               </a>
+              <AndroidHeroButton />
             </div>
             <p className="hero-note rise" style={{ ["--d" as string]: "320ms" }}>
               Non-custodial. Zero-knowledge proofs. Works with Phantom, Solflare, Backpack and the rest, or with no wallet at all.
@@ -86,6 +86,9 @@ export function Landing() {
             <EyesTile shield={shield} />
           </Tilt>
         </div>
+        <div className="wrap">
+          <ReleaseCountdown />
+        </div>
         <LiveStats onStats={(st) => setNetwork(st.network ?? null)} />
       </section>
 
@@ -94,7 +97,7 @@ export function Landing() {
           <div className="watch-head">
             <div>
               <p className="eyebrow rise">See it in action</p>
-              <h2 className="rise">Two minutes, start to finish.</h2>
+              <h2 className="rise">ZK proofs, private by design. Watch the tutorial.</h2>
             </div>
             <p className="body rise" style={{ ["--d" as string]: "100ms" }}>
               Connect, shield, buy, sell and send, plus how zero-knowledge proofs keep every step private. Watch the whole
@@ -159,8 +162,8 @@ export function Landing() {
           </div>
           <p className="how-proof rise">
             Your browser builds a zero-knowledge proof that you own one of the notes in the pool, without saying which
-            one. The Solana program checks the proof, pays out, and marks the note as spent. Nobody, us included, can
-            tell which deposit paid for which withdrawal.
+            one. The Solana program checks the proof, pays out, and marks the note as spent. The proof never says which
+            deposit paid for which withdrawal, to anyone, us included.
           </p>
         </div>
       </section>
@@ -176,19 +179,19 @@ export function Landing() {
               {
                 t: "Send privately",
                 d: "Pay anyone on Solana, straight from your wallet or from your private balance. They receive SOL from the pool, not from you.",
-                hid: "Your wallet and your balance",
+                hid: "Which deposit paid, and your balance",
                 vis: "The amount they receive, and when",
               },
               {
                 t: "Buy privately",
                 d: "Pick any token Jupiter can route. VisionSwap funds a brand-new Vision wallet from the pool and buys with it.",
-                hid: "Who the buyer really is",
-                vis: "That a new wallet bought a token",
+                hid: "Which deposit paid for the buy",
+                vis: "That a wallet funded from the pool bought a token",
               },
               {
                 t: "Sell privately",
                 d: "Sell from a Vision wallet and the SOL goes straight back into your private balance.",
-                hid: "Where the money ends up",
+                hid: "Where the money goes after the pool",
                 vis: "A sale, then a deposit into the pool",
               },
             ].map((c, i) => (
@@ -216,11 +219,11 @@ export function Landing() {
           <div className="why-head">
             <div>
               <p className="eyebrow rise">Pro tools</p>
-              <h2 className="rise">Trade like a pro. Leave no trail back to you.</h2>
+              <h2 className="rise">Trade like a pro. Keep your main wallet out of it.</h2>
             </div>
             <p className="body rise" style={{ ["--d" as string]: "80ms" }}>
-              Set your levels once and they run on their own, even with the page closed, from Vision wallets that nothing
-              on-chain ties to you.
+              Set your levels once and they run on their own, even with the page closed, from fresh Vision wallets funded
+              straight from the pool.
             </p>
           </div>
           <ul className="firsts-grid">
@@ -264,9 +267,9 @@ export function Landing() {
               any wallet or exchange.
             </p>
             <p className="body muted rise">
-              Your spending and viewing keys are made and kept in your browser, and our servers never see them: only your
-              keys can spend your private balance. An order you place can trade exactly the amount you set aside for it,
-              and you can cancel it any time.
+              Your spending and viewing keys are made and kept in your browser, and our servers never see them, so our
+              servers can't spend your private balance. An order you place can trade exactly the amount you set aside for
+              it, and you can cancel it any time.
             </p>
           </div>
         </div>
@@ -309,9 +312,7 @@ export function Landing() {
           <ul className="vswap-why">
             {VSWAP_WHY.map((w, i) => (
               <li key={w.title} className="rise" style={{ ["--d" as string]: `${i * 70}ms` }}>
-                <span className="vswap-ico">
-                  <Icon name={w.icon} />
-                </span>
+                <span className="vswap-ico"><Icon name={w.icon} /></span>
                 <h3>{w.title}</h3>
                 <p>{w.text}</p>
               </li>
@@ -329,12 +330,8 @@ export function Landing() {
             />
           </div>
           <div className="hero-cta vswap-cta rise">
-            <a className="btn" href="/tokenomics">
-              See the tokenomics
-            </a>
-            <a className="btn ghost" href="/app">
-              Open app
-            </a>
+            <a className="btn" href="/tokenomics">See the tokenomics</a>
+            <a className="btn ghost" href="/app">Open app</a>
           </div>
           <p className="tiny muted vswap-note">Not financial advice.</p>
         </div>
@@ -351,35 +348,42 @@ export function Landing() {
           </p>
           <div className="crowd-grid">
             <div className="rise">
-              <h3>Open code</h3>
-              <p>The Solana program, the circuits and this website are open source. Read them, check them, run your own relayer.</p>
+              <h3>Checkable on-chain</h3>
+              <p>The live program's code fingerprint is published in the Docs, every proof is checked in public by the program, and the program accepts a valid proof from any relayer.</p>
             </div>
             <div className="rise" style={{ ["--d" as string]: "80ms" }}>
               <h3>A free exposure check</h3>
-              <p>Anyone can see how exposed a wallet is. No account, no wallet connection, no logs.</p>
+              <p>Anyone can see how exposed a wallet is. No account, no wallet connection, nothing saved.</p>
             </div>
             <div className="rise" style={{ ["--d" as string]: "160ms" }}>
               <h3>A guarded door</h3>
-              <p>Wallets on sanctions lists are turned away at deposit. As the program stands, nobody, us included, can freeze a note or stop a withdrawal.</p>
+              <p>Every deposit is screened against the sanctions list, along with the wallets that recently funded it. Once a deposit is in the pool, no setting can move it or hand it to anyone else; only an upgrade to the program could change those rules, as the <a href="/security">Security</a> page explains.</p>
             </div>
             <div className="rise" style={{ ["--d" as string]: "240ms" }}>
-              <h3>Receipts on request</h3>
-              <p>Export a statement that shows where your funds came from, for an exchange or an accountant, and nothing more.</p>
+              <h3>Records on request</h3>
+              <p>Export a statement of your notes for an exchange or an accountant: it shows what you choose to share, and it can't spend anything.</p>
             </div>
           </div>
         </div>
       </section>
 
+      <GetAppSection />
+
       <section className="faq">
         <div className="wrap faq-grid">
           <h2 className="rise">Questions</h2>
           <div className="qa">
-            {FAQ.map((f) => (
+            {LANDING_FAQ.map((f) => (
               <details key={f.q} className="rise">
                 <summary>{f.q}</summary>
                 <p>{f.a}</p>
               </details>
             ))}
+            <p className="faq-more rise">
+              <a className="feature-link" href="/faq">
+                More questions, answered →
+              </a>
+            </p>
           </div>
         </div>
       </section>
@@ -419,32 +423,5 @@ const PRO: { icon: IconName; t: string; d: string }[] = [
     icon: "bolt",
     t: "Every trade, your way",
     d: "Normal, Fast or Turbo when you trade now, and a minimum received that the chain holds every trade to, orders included.",
-  },
-];
-
-const FAQ = [
-  {
-    q: "Does VisionSwap hold my money?",
-    a: "No. Shielded SOL sits in a Solana program that only pays out against a valid proof made with your keys. We never see those keys, and nothing on our servers can spend your notes. Orders are the exception you choose: our order service holds a key that can trade exactly the amount you set aside, from that order's own Vision wallet, until the order ends or you cancel it.",
-  },
-  {
-    q: "Can I use limit orders and stop-losses privately?",
-    a: "Yes. Limit buys, DCA, take-profit in up to four steps, stop-loss and trailing stops all run from Vision wallets that nothing on-chain ties to you, and they keep running with the page closed.",
-  },
-  {
-    q: "What can people still see?",
-    a: "That your wallet put SOL into VisionSwap, and how much. That a withdrawal happened, how much, and where it went. What they can't see is the line between the two.",
-  },
-  {
-    q: "How long should I wait before spending?",
-    a: "There's no magic number. Before you send, the app tells you how many notes your withdrawal could have come from. Bigger is better, and round amounts that differ from your deposit help a lot.",
-  },
-  {
-    q: "What if VisionSwap disappears?",
-    a: "Your notes live on Solana, not on our servers. The code is open, so anyone can run the app and a relayer, and the program pays out to any valid proof.",
-  },
-  {
-    q: "Is this legal?",
-    a: "Financial privacy is legal in most places, and it should be. VisionSwap turns away wallets on sanctions lists, and its terms rule out use from sanctioned places. Check the rules where you live before you use it.",
   },
 ];

@@ -1,0 +1,1232 @@
+/* VisionSwap for Chrome: the website's app styles in their dark colours, laid out for a side panel
+   (360-420 px wide) or a centred column in a tab. Only the extension loads this file. */
+
+:root[data-theme="dark"] {
+  --paper: #0f0819;
+  --paper-2: #1a1029;
+  --card: #1c1230;
+  --card-2: #251838;
+  --ink: #f3eefa;
+  --ink-2: #cdc3dc;
+  --ink-3: #a398b3;
+  --line: rgba(243, 238, 250, 0.1);
+  --line-strong: rgba(243, 238, 250, 0.22);
+  --violet: #8a2bff;
+  --violet-deep: #c9a2ff;
+  --violet-soft: #2b1450;
+  --violet-ink: #d4b5ff;
+  --ok: #3ccf91;
+  --warn: #ffb15c;
+  --bad: #ff6b81;
+  /* borders of controls (ghost buttons, inputs, tick boxes, the selection bar's buttons): 3.47:1 on a card */
+  --line-control: rgba(243, 238, 250, 0.4);
+  --ok-bg: #123a2a;
+  --ok-ink: #b9f5d8;
+  --bad-bg: #45121e;
+  --bad-ink: #ffd0d8;
+  --warn-bg: #3a2408;
+  --warn-ink: #ffc58a;
+}
+/* what sits at the bottom of the panel: the navigation, or the selection bar in its place */
+.ext {
+  --ext-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+}
+.ext:has(.ext-screen:not([hidden]) .vw-bulk) {
+  --ext-bottom: calc(124px + env(safe-area-inset-bottom, 0px));
+}
+/* a control brought into view (by focus or a link) never stops under the header, the navigation or the bar */
+html {
+  scroll-padding-top: 72px;
+  scroll-padding-bottom: 148px;
+}
+/* ... nor under a sub-screen's title row (Receive, Send) */
+html:has(.ext-title) {
+  scroll-padding-top: 132px;
+}
+/* ... nor under a message repeated just above the bottom (the dock: three lines and a link at most, about 112 px) */
+html:has(.ext-main.dock-on) {
+  scroll-padding-bottom: 212px;
+}
+html:has(.ext-main.dock-on):has(.ext-screen:not([hidden]) .vw-bulk) {
+  scroll-padding-bottom: 272px;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+body {
+  font-size: 15px;
+  line-height: 1.5;
+  background: var(--paper);
+  scroll-behavior: auto;
+}
+
+.ext {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  background:
+    radial-gradient(420px 260px at 50% -60px, rgba(138, 43, 255, 0.28), transparent 70%),
+    var(--paper);
+}
+.ext.in-tab {
+  max-width: 440px;
+  margin: 0 auto;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  box-shadow: 0 0 80px -30px rgba(138, 43, 255, 0.4);
+}
+
+/* ───────── header ───────── */
+.ext-top {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 64px;
+  padding: 0 12px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+}
+/* "You can lock once this step finishes": one line under the header, for a moment */
+.ext-lock-hint {
+  position: sticky;
+  top: 64px;
+  z-index: 39;
+  margin: 0;
+  padding: 10px 16px;
+  background: var(--violet-soft);
+  color: var(--violet-ink);
+  font-size: 14px;
+  animation: fadeIn 0.15s ease both;
+}
+.ext-acct-box {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.ext-acct {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 4px 10px 4px 4px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+.ext-acct:hover {
+  background: var(--paper-2);
+}
+.ext-avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #a64dff, #5b02ad);
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.ext-acct-txt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.2;
+}
+.ext-acct-txt strong {
+  font-size: 14.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ext-private {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--violet-ink);
+}
+.ext-acct-chev {
+  flex: none;
+  transform: rotate(90deg);
+  color: var(--ink-3);
+}
+.ext-icon-btn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink-2);
+}
+.ext-icon-btn:hover {
+  background: var(--paper-2);
+  color: var(--ink);
+}
+.ext-icon-btn[disabled] {
+  opacity: 0.4;
+  pointer-events: none;
+}
+.ext-icon-btn[aria-disabled="true"] {
+  opacity: 0.55;
+}
+.ext-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  padding: 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  background: var(--card-2);
+  box-shadow: 0 24px 48px -16px rgba(0, 0, 0, 0.7);
+  animation: fadeIn 0.15s ease both;
+}
+.ext-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 14.5px;
+  text-align: left;
+}
+.ext-menu button:hover {
+  background: var(--violet-soft);
+}
+.ext-menu button[disabled] {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.ext-menu button[aria-disabled="true"] {
+  opacity: 0.55;
+}
+
+/* ───────── content ───────── */
+.ext-main {
+  position: relative;
+  flex: 1;
+  padding: 12px 16px calc(var(--ext-bottom) + 24px);
+}
+.ext-main.dock-on {
+  padding-bottom: calc(var(--ext-bottom) + 150px);
+}
+/* a sub-screen's title and its way back stay in view under the header */
+.ext-title {
+  position: sticky;
+  top: 64px;
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: -12px -16px 8px;
+  padding: 6px 16px 6px 4px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+}
+.ext-title h2 {
+  font-size: 20px;
+}
+.ext-screen > * + * {
+  margin-top: 12px;
+}
+.ext-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 16px 14px;
+}
+.ext-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ext .panel {
+  padding: 16px 14px 12px;
+}
+.ext .panel header h3 {
+  font-size: 20px;
+}
+.ext .banner {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+.ext .banner.good {
+  background: var(--ok-bg);
+  color: var(--ok-ink);
+}
+.ext .banner.bad {
+  background: var(--bad-bg);
+  color: var(--bad-ink);
+}
+/* the success banner's links read on its green (they were dark green on dark green) */
+.ext .banner.good .link-btn,
+.ext .dock.good .link-btn {
+  color: var(--ok-ink);
+}
+/* a link in a banner or the dock: a 44 px target without making the line taller */
+.ext .banner .link-btn,
+.ext .dock .link-btn {
+  padding-block: 11px;
+  margin-block: -11px;
+}
+.ext .banner.info {
+  background: var(--violet-soft);
+  color: var(--violet-ink);
+}
+.ext .banner > button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.ext .bg-line {
+  margin: 0 0 12px;
+}
+.ext .net-badge {
+  display: block;
+  width: fit-content;
+  margin: 0 auto 8px;
+  background: #3a2a06;
+  color: #ffd98a;
+  font-size: 12.5px;
+}
+
+/* the busy card covers the panel, the dock sits just above the navigation */
+.ext .busy {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  border-radius: 0;
+  padding-top: 18vh;
+  background: color-mix(in srgb, var(--paper) 90%, transparent);
+}
+.ext .busy-in {
+  position: static;
+}
+.ext .busy-mascot {
+  width: 120px;
+}
+.ext .busy-step {
+  font-size: 20px;
+}
+.ext .dock.ext-dock {
+  left: 10px;
+  right: 10px;
+  bottom: calc(var(--ext-bottom) + 8px);
+}
+.ext.in-tab .dock.ext-dock {
+  max-width: 420px;
+}
+.ext .dock.bad {
+  background: var(--bad-bg);
+  color: var(--bad-ink);
+}
+.ext .dock.good {
+  background: var(--ok-bg);
+  color: var(--ok-ink);
+}
+
+/* ───────── home ───────── */
+.ext-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 2px;
+  padding: 4px 0;
+}
+.ext-hero-top {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+}
+.ext-eyebrow {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+.ext-eye {
+  position: absolute;
+  right: -6px;
+  top: 0;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.ext-eye:hover {
+  background: var(--paper-2);
+  color: var(--ink);
+}
+.ext-eye[aria-pressed="true"] {
+  color: var(--violet-ink);
+}
+.ext-bal {
+  font-family: var(--serif);
+  font-size: 40px;
+  font-weight: 560;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  word-break: break-word;
+}
+.ext-bal.l2 {
+  font-size: 34px;
+}
+.ext-bal.l3 {
+  font-size: 28px;
+}
+.ext-bal-skel {
+  width: 160px;
+  height: 40px;
+  margin: 2px 0;
+}
+.ext-usd-skel {
+  width: 90px;
+  height: 14px;
+  margin: 6px 0 4px;
+}
+.ext-usd {
+  font-size: 15px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.ext-under {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  margin: 6px 0 0;
+  padding: 0;
+  color: var(--ink-3);
+  max-width: 100%;
+}
+.ext-under li {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  max-width: 100%;
+}
+.ext-flight {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 100%;
+  text-align: left;
+}
+button.ext-flight {
+  min-height: 44px;
+  align-items: center;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+button.ext-flight:hover {
+  background: var(--paper-2);
+  color: var(--ink-2);
+}
+.ext-under-ico {
+  flex: none;
+  margin-top: 3px;
+}
+button.ext-flight .ext-under-ico {
+  margin-top: 0;
+}
+.ext-under .link-btn {
+  min-height: 44px;
+}
+.ext-empty-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 16px;
+  border-radius: 18px;
+  background: var(--card);
+  text-align: center;
+}
+.ext-empty-card strong {
+  font-size: 17px;
+}
+.ext-actions {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin: 14px 0 6px;
+}
+.ext-act {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-height: 76px;
+  padding: 8px 0;
+  border: 0;
+  border-radius: 16px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  transition:
+    background 0.15s,
+    transform 0.15s var(--ease);
+}
+.ext-act:hover {
+  background: var(--card-2);
+  transform: translateY(-1px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ext-act,
+  .ext-act:hover {
+    transition: none;
+    transform: none;
+  }
+}
+.ext-ring {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--violet);
+  color: #fff;
+}
+.ext-list {
+  margin-top: 18px;
+}
+.ext-list-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 4px;
+}
+.ext-list-top .ext-h3 {
+  margin: 0;
+}
+.ext-list-top .link-btn {
+  min-height: 44px;
+}
+.ext-h3 {
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-2);
+  margin: 0 0 8px;
+}
+.ext-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 64px;
+  margin-top: 6px;
+  padding: 12px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+button.ext-item {
+  cursor: pointer;
+}
+button.ext-item:hover {
+  background: var(--card-2);
+}
+.ext-item > .tok-icon,
+.ext-item > .ext-coin {
+  flex: none;
+}
+.ext-item-sub {
+  font-size: 13px;
+  color: var(--ink-3);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ext-item-chev {
+  flex: none;
+  margin-left: -6px;
+  color: var(--ink-3);
+}
+/* the joining row's progress: under its text, the full width of the row */
+.ext-item-bar {
+  flex-basis: 100%;
+  height: 4px;
+  margin: -4px 0 0;
+  border-radius: 99px;
+  background: var(--paper-2);
+  overflow: hidden;
+}
+.ext-item-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--violet);
+  transition: width 0.4s var(--ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ext-item-bar i {
+    transition: none;
+  }
+}
+.ext-coin.warn {
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+}
+.ext-coin {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--violet-soft);
+  color: var(--violet-ink);
+}
+.ext-item-main,
+.ext-item-side {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+.ext-item-main {
+  flex: 1;
+}
+/* a row's name and its line under it wrap to two lines each rather than cut off */
+.ext-item-main strong,
+.ext-item-main .ext-item-sub {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ext-item-main strong {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.ext-item-side {
+  flex: none;
+  max-width: 48%;
+  align-items: flex-end;
+  text-align: right;
+}
+.ext-item-side strong {
+  max-width: 100%;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ext-item-side .ext-item-sub {
+  max-width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+.ext-item .small {
+  font-size: 12.5px;
+}
+.ext-recent {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ext-recent li {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 0 12px;
+  align-items: center;
+  padding: 10px 2px;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+}
+.ext-recent li:first-child {
+  border-top: 0;
+}
+.ext-recent .a-ico {
+  grid-row: span 2;
+}
+.ext-recent-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ext-recent-when {
+  grid-column: 2;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.ext-empty {
+  padding: 8px 2px;
+}
+
+/* ───────── receive, swap, settings ───────── */
+.ext-fromwallet {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ext-swap-seg {
+  margin-bottom: 12px;
+}
+.ext .qr-card,
+.ext .req-card {
+  grid-template-columns: 1fr;
+  justify-items: center;
+  text-align: center;
+}
+.ext .qr-frame {
+  background: #fff;
+}
+.ext-links {
+  display: flex;
+  flex-direction: column;
+  margin: 0 -6px 8px;
+}
+.ext-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 15px;
+  text-align: left;
+}
+.ext-row:hover {
+  background: var(--paper-2);
+}
+
+/* ───────── bottom navigation ───────── */
+.ext-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  border-top: 1px solid var(--line);
+  background: var(--paper-2);
+}
+/* while wallets are ticked, the selection bar takes the navigation's place (they never stack) */
+.ext:has(.ext-screen:not([hidden]) .vw-bulk) .ext-nav {
+  display: none;
+}
+.ext.in-tab .ext-nav {
+  max-width: 440px;
+  margin: 0 auto;
+}
+.ext-nav button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  height: 64px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.ext-nav button span {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ext-nav button.on {
+  color: var(--violet-ink);
+}
+.ext-nav button:hover {
+  color: var(--ink);
+}
+
+/* ───────── locked ───────── */
+.ext-locked {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px 16px 28px;
+}
+.ext-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 560;
+}
+.ext-brand img {
+  border-radius: 12px;
+}
+.ext-h1 {
+  font-size: 30px;
+  margin-top: 8px;
+}
+.ext-lead {
+  margin-top: -6px;
+}
+.ext-unlock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 20px;
+  background: var(--card);
+  border: 1px solid var(--line);
+}
+.ext-or {
+  margin-top: 4px;
+}
+.ext-terms {
+  margin-top: 6px;
+}
+.ext .way {
+  background: var(--card);
+}
+.ext .way-go .glyph {
+  color: var(--ink-3);
+}
+
+/* the link from visionswap.net */
+.ext-linkcard {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin: 0 0 12px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--violet) 60%, transparent);
+  background: var(--violet-soft);
+}
+.ext-linkcard-ico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--violet);
+  color: #fff;
+}
+.ext-linkcard-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.ext-linkcard-btns {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ext-linkcard-btns .btn {
+  min-height: 44px;
+  padding: 0 20px;
+}
+
+/* the website's text colours that were made for a light page */
+.ext .warn {
+  color: var(--warn-ink);
+  background: var(--warn-bg);
+}
+.ext .note,
+.ext .tiny,
+.ext .muted {
+  color: var(--ink-3);
+}
+/* buttons in the panel (and in the Terms window, which opens over it): sentence case, words that wrap
+   rather than overflow, no lift on hover */
+.ext .btn,
+.tg-back .btn {
+  --b: var(--ink);
+  min-height: 44px;
+  max-width: 100%;
+  padding: 10px 18px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.25;
+}
+.ext .btn:hover,
+.tg-back .btn:hover {
+  transform: none;
+  box-shadow: none;
+  filter: brightness(1.08);
+}
+.ext .btn.wide,
+.tg-back .btn.wide {
+  min-height: 52px;
+  font-size: 16px;
+}
+.ext .btn.small-btn {
+  min-height: 44px;
+  padding: 8px 16px;
+  font-size: 14px;
+}
+.ext .btn.ghost {
+  border-color: var(--line-control);
+  color: var(--ink);
+}
+.ext .btn.violet {
+  --b: var(--violet);
+  color: #fff;
+}
+/* every control shows where the keyboard is */
+.ext :focus-visible,
+.sheet :focus-visible,
+.tg-back :focus-visible {
+  outline: 2px solid var(--violet-ink);
+  outline-offset: 2px;
+}
+.ext summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+}
+/* (a flex summary loses the browser's own triangle: a chevron says it opens, and turns once open) */
+.ext details:not(.trade-set) > summary {
+  gap: 10px;
+  cursor: pointer;
+}
+.ext details:not(.trade-set) > summary::after {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+}
+.ext details:not(.trade-set)[open] > summary::after {
+  transform: translateY(2px) rotate(-135deg);
+}
+.ext .field-hint {
+  color: #ffc58a;
+}
+.ext .good-text {
+  color: #5fe0a5;
+}
+.ext .job-chip.good {
+  background: rgba(60, 207, 145, 0.14);
+  color: #7ae8b6;
+}
+.ext .job-chip.bad {
+  background: rgba(255, 107, 129, 0.14);
+  color: #ffb3bf;
+}
+.ext .seg button.on {
+  background: #3a2660;
+  color: #fff;
+  box-shadow: none;
+}
+.ext .way-ico {
+  color: var(--violet-ink);
+}
+.ext .send-empty {
+  color: var(--violet-ink);
+}
+.ext .qr-card {
+  background: var(--paper-2);
+}
+
+/* ───────── wallets (the shared Wallets tab, laid out for the panel) ───────── */
+.ext .wallets {
+  padding: 0;
+}
+.ext .vw-head h3 {
+  font-size: 24px;
+}
+@media (max-width: 360px) {
+  .ext .vw-head h3 {
+    font-size: 20px;
+  }
+  .ext .vw-head .btn.small-btn {
+    padding: 8px 12px;
+    font-size: 13.5px;
+  }
+}
+.ext .vw {
+  margin: 0 -12px;
+  padding: 0 4px;
+}
+.ext .vw-open:hover,
+.ext .vw-open:active {
+  background: var(--card-2);
+}
+/* the selection bar: across the bottom of the panel, in the navigation's place */
+.ext .vw-bulk {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 55;
+  margin: 0;
+  height: calc(124px + env(safe-area-inset-bottom, 0px));
+  padding: 9px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  border-width: 1px 0 0;
+  border-radius: 18px 18px 0 0;
+  background: var(--paper-2);
+  box-shadow: 0 -16px 32px -16px rgba(0, 0, 0, 0.7);
+}
+.ext .vw-bulk-act:hover,
+.ext .vw-bulk-x:hover {
+  background: var(--card-2);
+}
+.ext .vw-bulk-act.primary:hover {
+  background: var(--violet);
+}
+.ext.in-tab .vw-bulk,
+.ext.in-tab .ext-nav,
+.ext.in-tab .sheet {
+  max-width: 440px;
+  margin: 0 auto;
+}
+.ext .vw-fund {
+  background: var(--card);
+}
+.ext .sheet .form.vw-fund {
+  background: none;
+}
+.ext .sheet-btn:hover,
+.ext .vw-more-row:hover {
+  background: var(--card-2);
+}
+.ext .vw-left {
+  background: var(--paper-2);
+}
+
+/* ───────── activity ───────── */
+/* "In progress" shows only while a panel under it has something */
+.ext-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ext-progress:not(:has(.panel)) {
+  display: none;
+}
+.ext-progress > .ext-h3 {
+  margin: 0;
+}
+.ext-history {
+  display: flex;
+  flex-direction: column;
+}
+.ext-chips {
+  display: flex;
+  gap: 8px;
+  max-width: 100%;
+  margin: 0 0 4px;
+  padding: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+/* a 36 px chip in a 44 px row: the row is the target */
+.ext-chips button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 44px;
+  padding: 0 14px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: 600 14px var(--sans);
+  cursor: pointer;
+  position: relative;
+  z-index: 0;
+}
+.ext-chips button::before {
+  content: "";
+  position: absolute;
+  inset: 4px 0;
+  z-index: -1;
+  border: 1px solid var(--line-control);
+  border-radius: 999px;
+}
+.ext-chips button.on {
+  color: var(--violet-ink);
+}
+/* all four chips fit a 320 px panel */
+@media (max-width: 360px) {
+  .ext-chips {
+    gap: 6px;
+  }
+  .ext-chips button {
+    padding: 0 12px;
+  }
+}
+.ext-chips button.on::before {
+  border-color: transparent;
+  background: var(--violet-soft);
+}
+.ext .a-ico {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--violet-soft);
+  color: var(--violet-ink);
+}
+.ext .activity-rows li {
+  font-size: 14px;
+}
+
+/* ───────── settings ───────── */
+.ext-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  min-height: 48px;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ext-switch-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ext-switch {
+  flex: none;
+  position: relative;
+  width: 44px;
+  height: 26px;
+  border: 1.5px solid var(--line-control);
+  border-radius: 999px;
+  background: transparent;
+  transition: background 0.15s;
+}
+.ext-switch i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  background: var(--ink-2);
+  transition: transform 0.15s var(--ease);
+}
+.ext-switch-row[aria-checked="true"] .ext-switch {
+  border-color: var(--violet);
+  background: var(--violet);
+}
+.ext-switch-row[aria-checked="true"] .ext-switch i {
+  background: #fff;
+  transform: translateX(18px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ext-switch,
+  .ext-switch i {
+    transition: none;
+  }
+}
+
+/* ───────── a token's sheet ───────── */
+.ext-tok-total {
+  margin: 0 0 2px;
+  font-size: 15px;
+}
+.ext-tok-total strong {
+  font-size: 22px;
+}
+.ext-tok-h {
+  margin: 14px 0 4px;
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--ink-2);
+}
+.ext-tok-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ext-tok-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 56px;
+  border-top: 1px solid var(--line);
+}
+.ext-tok-who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 14px;
+}
+.ext-tok-amt {
+  font-variant-numeric: tabular-nums;
+}

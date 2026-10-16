@@ -13,6 +13,7 @@ import {
   type NewPasskey,
 } from "../../lib/passkey";
 import { accountTag } from "../../lib/device";
+import { IS_EXTENSION } from "../../lib/platform";
 import { Icon } from "../Icon";
 import { engine, lockWaits, type State } from "../../lib/engine";
 import { copyText } from "./Panels";
@@ -190,10 +191,13 @@ export function KeyCreate({
   );
 }
 
-/** Whether to offer passkeys: anything but a clear "no" from the browser. */
+/**
+ * Whether to offer passkeys: anything but a clear "no" from the browser. Never in the extension: passkeys
+ * belong to visionswap.net, so a passkey account comes into the extension through "Use my VisionSwap account".
+ */
 function usePasskeys(): boolean {
   // the first answer is immediate (so the screen never swaps under the person); the browser can only take it back
-  const [ok, setOk] = useState(() => typeof window !== "undefined" && !!window.PublicKeyCredential && !!navigator.credentials);
+  const [ok, setOk] = useState(() => !IS_EXTENSION && typeof window !== "undefined" && !!window.PublicKeyCredential && !!navigator.credentials);
   useEffect(() => {
     void passkeySupport().then((v) => v === false && setOk(false));
   }, []);

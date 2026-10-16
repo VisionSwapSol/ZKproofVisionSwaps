@@ -1,25 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { engine, fmt, fmtDown, fmtUp, solText, autoSlippage, visionReserve, WHEN_LABEL, type State, type WalletLike, type When, type SelfPayer } from "../../lib/engine";
-import { api, conn, parseSol, parseUnits, formatUnits, short } from "../../lib/net";
+import { conn, lookup, parseSol, parseUnits, formatUnits, short } from "../../lib/net";
 import { normAmount } from "../../lib/amount";
 import { ls } from "../../lib/idb";
 import { SPEEDS, SPEED_CAP, speedOf, type Speed } from "../../lib/trade";
 import { copyText } from "../../lib/copy";
 import { sendPrefill, clearSendPrefill } from "../../lib/prefill";
 import { buyFromVision, useBuyFrom, onSellFrom, sellPicked } from "../../lib/buyfrom";
-import { allOfIt, eachAmounts, partMin, scaleMinOut, shareOf, splitAmounts, BATCH_MAX } from "../../lib/batch";
+import { allOfIt, eachAmounts, partMin, shareOf, splitAmounts, BATCH_MAX } from "../../lib/batch";
+import { approvalOf, batchWarnings, checkSay, costSay, driftLabel, pctText, type TradeGuard } from "../../lib/guard";
+import { clampDrift, lastRate, DRIFT_CHOICES, DRIFT_DEFAULT_BPS, IMPACT_BLOCK_PCT, type TradeCheck } from "@visionswap/sdk";
+import { secureRandom } from "../../lib/poll";
 import { PacingControl, batchLive, batchWallets, toBatchCard, usePacing } from "./Batch";
 import { ConfirmButton } from "./Panels";
 import { TokenPicker, TokenIcon, type Token } from "./TokenPicker";
 import { useTokenMeta } from "../../lib/tokenmeta";
-import { sawNoRoute, sawRoute, stuckToken, probeTooSoon, NO_ROUTE_GAP_MS } from "../../lib/tokenfacts";
+import { bucketAmount, sawNoRoute, sawRoute, stuckToken, probeTooSoon, NO_ROUTE_GAP_MS } from "../../lib/tokenfacts";
 import { QrDeposit } from "./Qr";
 import { RequestLink } from "./Requests";
 import { AmountField } from "./AmountField";
 import { useTabActive } from "./TabActive";
 import { EMPTY_WARN } from "./ShieldFirst";
 import { useWalletLike } from "../../lib/wallet";
+import { IS_EXTENSION } from "../../lib/platform";
+import { ListedWarning } from "./Listed";
+import { LARGE_SHARE_BPS, NEAR_SWEPT_TEXT, NEAR_TEXT, WALLET_NEAR_TEXT, largeShareText } from "../../lib/privacy";
 
 export { AmountField };
 
@@ -65,7 +71,7 @@ function WalletShield({ st, wallet }: { st: State; wallet: WalletLike }) {
   const [amt, setAmt] = useState("");
   const lamports = parseSol(amt);
   const pool = st.pool!;
-  const delayMin = Math.max(1, Math.round((Number(pool.depositDelaySlots) * 0.4) / 60));
+  const delayMin = engine.slotMinutes(Number(pool.depositDelaySlots));
   // the exact most this wallet can shield: amount + fee + waiting-room rent + network fee, keeping the wallet open
   const maxPublic = engine.maxShield();
   const min = BigInt(pool.minDeposit);
@@ -137,7 +143,7 @@ function WalletShield({ st, wallet }: { st: State; wallet: WalletLike }) {
 function ownWaiting(st: State): { amount: bigint; min: number } {
   const mine = st.waiting.filter((w) => w.depositor === st.owner && !st.pays.some((p) => p.inner === w.inner));
   const left = mine.reduce((m, w) => Math.max(m, w.readyAt != null ? Number(w.readyAt) - st.slot : 0), 0);
-  return { amount: mine.reduce((s, w) => s + w.amount, 0n), min: Math.max(1, Math.ceil((left * 0.4) / 60)) };
+  return { amount: mine.reduce((s, w) => s + w.amount, 0n), min: engine.slotMinutes(left, true) };
 }
 
 /** What a buy form says when the private balance is short: SOL on its way in, an empty balance, or `notEnough`. AddSol follows it. */
@@ -170,7 +176,7 @@ export function AddSol({ st, need }: { st: State; need: bigint }) {
   if (!can || add < min) {
     return (
       <a className="link-btn" href="#shield">
-        Add SOL in the Shield tab
+        {IS_EXTENSION ? "Add SOL with Receive" : "Add SOL in the Shield tab"}
       </a>
     );
   }
@@ -292,6 +298,8 @@ export function SendForm({ st, wallet }: { st: State; wallet?: WalletLike | null
   // several payments "now" leave one by one over two minutes, through the relayer
   const spread = !later && many && offered.includes("2m");
   const prep = (later || spread) && ready ? engine.prepCost(quotes.map((q) => q!.withdraw), later) : 0n;
+  // one payment sent now from a balance in several pieces: the joins it needs run just before it
+  const joinsFirst = !later && !many && ready && quotes[0] ? engine.mergePlan(quotes[0].withdraw).merges : 0;
   const total = sum((q) => q.withdraw) + prep;
   const tooMuch = total > spendable;
   const dupes = new Set(parsed.map((r) => r.addr).filter((a, i, all) => a && all.indexOf(a) !== i));
@@ -303,10 +311,11 @@ export function SendForm({ st, wallet }: { st: State; wallet?: WalletLike | null
   const small = parsed.some((r, i) => outside[i] && r.lamports != null && r.lamports > 0n && r.lamports < minPay);
   const perPay = quotes.reduce((m, q) => (q && q.relayerFee + q.deliveryFee > m ? q.relayerFee + q.deliveryFee : m), 0n);
   const ask = st.ask && parsed.some((r) => r.addr === st.ask!.address) ? st.ask : null;
-  // paying from the wallet: one outside address, and one deposit of exactly what the payment spends
+  // paying from the wallet: one outside address, and one deposit of a standard size that covers it (what the payment doesn't use stays private as change)
   const w0 = parsed[0];
   const sized = fromWallet && w0.lamports && w0.lamports >= minPay ? engine.walletPayDeposit(w0.lamports) : null;
   const deposit = sized && "deposit" in sized ? sized.deposit : null;
+  const change = sized && "deposit" in sized ? sized.change : 0n;
   const wq = deposit != null ? engine.quotePay(w0.lamports!) : null;
   const walletMost = fromWallet ? engine.walletPayMax() : null;
   // said under the address
@@ -320,17 +329,48 @@ export function SendForm({ st, wallet }: { st: State; wallet?: WalletLike | null
   const wProblem = !fromWallet
     ? null
     : sized && "problem" in sized
-      ? sized.problem === "small"
-        ? `The smallest payment from your wallet is ${fmtUp(sized.least, 6)} SOL.`
-        : `The most one payment from your wallet can be right now is ${fmtDown(sized.most, 6)} SOL.`
+      ? `That's more than one payment from your wallet can be right now.${sized.most > 0n ? ` Try ${fmtDown(sized.most, 6)} SOL or less.` : ""}`
       : deposit != null && st.publicLamports != null && st.rent && engine.shieldCost(deposit) + engine.walletKeep() > st.publicLamports
         ? walletMost != null && walletMost >= minPay
-          ? `That's more than this wallet holds after fees. The most it can send right now is ${fmtDown(walletMost, 6)} SOL.`
+          ? `That takes a standard deposit of ${fmt(deposit, 9)} SOL, more than this wallet holds after fees. Try ${fmtDown(walletMost, 6)} SOL or less.`
           : "This wallet doesn't hold enough SOL for that after fees."
         : null;
   const wReady = fromWallet && !!w0.addr && deposit != null && !wProblem && !wAddrProblem;
   const paused = !!st.pool?.depositsPaused;
   const waitLabel = engine.waitLabel();
+  // what the pool holds is read (public, the same for everyone) once there is an amount to weigh against it (VS-15)
+  const anyAmount = parsed.some((r) => r.lamports && r.lamports > 0n);
+  useEffect(() => {
+    if (anyAmount) void engine.refreshPoolValue();
+  }, [anyAmount]);
+  // gentle notes (VS-04, VS-15): a payment close in size to a recent deposit of this account's, or one taking most of
+  // what the pool holds, is easier to match on the chain; each suggests a later time and holds nothing back
+  const typedRows = parsed.filter((r) => r.lamports && r.lamports > 0n).slice(0, fromWallet ? 1 : MAX_ROWS);
+  const nearSrc = fromWallet ? null : (typedRows.map((r) => engine.nearDepositFor(r.addr, r.lamports!)).find((x) => x)?.src ?? null);
+  const nearText = fromWallet
+    ? w0.lamports && deposit != null && engine.walletPayNear(w0.lamports)
+      ? WALLET_NEAR_TEXT
+      : null
+    : nearSrc
+      ? nearSrc === "vision"
+        ? NEAR_SWEPT_TEXT
+        : NEAR_TEXT
+      : null;
+  const share = typedRows.reduce<number | null>((m, r) => {
+    const s = engine.poolShare(r.addr, r.lamports!);
+    return s == null ? m : Math.max(m ?? 0, s);
+  }, null);
+  const shareText = share != null && share >= LARGE_SHARE_BPS ? largeShareText(Math.round(share / 100)) : null;
+  // the later times offered here: the button picks the shortest one
+  const laterPick: When | null = (["15m", "1h", "24h"] as When[]).find((v) => offered.includes(v)) ?? null;
+  const goLater =
+    laterPick && (fromWallet ? whenWallet === "now" : when === "now")
+      ? () => {
+          if (!fromWallet) return setWhen(laterPick);
+          ls.set(WHEN_WALLET, laterPick);
+          setPickW(laterPick);
+        }
+      : null;
   const submit = async () => {
     again.current = () => void submit();
     if (!ready || tooMuch || dupes.size || small) return;
@@ -435,6 +475,7 @@ export function SendForm({ st, wallet }: { st: State; wallet?: WalletLike | null
             {r.mine !== null && <p className="mine-tag">Vision wallet #{r.mine + 1} (yours) · it shows in the Wallets tab as soon as it's paid</p>}
             {r.mine !== null && swapped.includes(r.id) && <p className="warn">A buy used the fresh wallet picked here, so this new one takes its place. Check it, then press the button again to send.</p>}
             {r.to && !r.addr && <p className="warn">That doesn't look like a Solana address.</p>}
+            {r.addr && r.mine === null && <ListedWarning to={r.addr} />}
             {i === 0 && wAddrProblem && <p className="warn">{wAddrProblem}</p>}
             {!fromWallet && r.addr && r.addr === st.owner && <p className="warn">This is the wallet you shielded from. Sending back to it ties the two together again.</p>}
             {r.addr && dupes.has(r.addr) && !fromWallet && <p className="warn">This address is in the list twice.</p>}
@@ -452,7 +493,7 @@ export function SendForm({ st, wallet }: { st: State; wallet?: WalletLike | null
                     ? solText(engine.maxSendable())
                     : null
               }
-              hint={i === 0 ? (fromWallet ? (st.publicLamports != null ? `Wallet: ${fmt(st.publicLamports)} SOL` : undefined) : `Private: ${fmt(spendable)} SOL`) : undefined}
+              hint={i === 0 ? (fromWallet ? (st.publicLamports != null ? `Wallet: ${fmt(st.publicLamports)} SOL` : undefined) : `Available: ${fmt(spendable)} SOL`) : undefined}
             />
           </div>
         ))}
@@ -503,27 +544,42 @@ export function SendForm({ st, wallet }: { st: State; wallet?: WalletLike | null
         <p className="tiny when-note">
           {fromWallet
             ? whenWallet === "now"
-              ? `It goes out as soon as it joins your private balance, about ${waitLabel} after you pay.`
-              : `It goes out at a random moment within ${WHEN_LABEL[whenWallet]} of joining your private balance, which makes it harder to match to your deposit.`
+              ? `It goes out as soon as it joins your private balance, about ${waitLabel} after you pay.${offered.length ? " A later time is the more private choice: the payment then goes out at a random moment, which is harder to match to your deposit." : ""}`
+              : `It goes out at a random moment within ${WHEN_LABEL[whenWallet]} of joining your private balance. That's the more private choice: its timing is much harder to match to your deposit.`
             : later
-              ? `${many ? "Each payment goes" : "It goes"} out at a random moment within ${WHEN_LABEL[when]}. You can close this page or cancel it before then.`
+              ? `${many ? "Each payment goes" : "It goes"} out at a random moment within ${WHEN_LABEL[when]}. Once ${many ? "they show" : "it shows"} Scheduled under Scheduled payments, you can close this page, or cancel before then.`
               : spread
-                ? "They go out one by one at random moments over the next 2 minutes, so they don't land together. You can close this page."
+                ? "They go out one by one at random moments over the next 2 minutes, so they don't land together. Once they show Scheduled under Scheduled payments, you can close this page."
                 : !offered.length
                   ? "Sending later needs the relayer, which isn't available right now."
                   : "Sending later, at a random moment, makes your payment harder to match to your deposit by when it lands."}
         </p>
+        <PrivacyNotes texts={[nearText, shareText]} onLater={goLater} />
       </div>
 
       {fromWallet && wq && deposit != null && (
-        <Rows
-          rows={[
-            ["They receive", `${fmt(w0.lamports!, 9)} SOL`],
-            ["Pool fees", `${fmt(engine.depositFee(deposit) + wq.protocolFee, 6)} SOL`],
-            ["Relayer and network", `${fmt(wq.relayerFee + wq.deliveryFee, 6)} SOL`],
-            ["Taken from your wallet", `${fmt(deposit + engine.depositFee(deposit), 6)} SOL`, "total"],
-          ]}
-        />
+        <>
+          <Rows
+            rows={[
+              ["They receive", `${fmt(w0.lamports!, 9)} SOL`],
+              ["Pool fees", `${fmt(engine.depositFee(deposit) + wq.protocolFee, 6)} SOL`],
+              ["Relayer and network", `${fmt(wq.relayerFee + wq.deliveryFee, 6)} SOL`],
+              ["Stays in your private balance", `${fmt(change, 6)} SOL`],
+              ["Taken from your wallet", `${fmt(deposit + engine.depositFee(deposit), 6)} SOL`, "total"],
+            ]}
+          />
+          <p className="tiny">
+            Your wallet deposits a standard amount, {fmt(deposit, 9)} SOL, rather than the payment's exact cost, so the deposit doesn't mirror the
+            payment. The {fmt(change, 6)} SOL it doesn't use stays in your private balance
+            {whenWallet === "now" ? ", ready for your next payment." : ", free to spend once the payment has gone out."}
+          </p>
+        </>
+      )}
+      {!fromWallet && joinsFirst > 0 && offered.includes("15m") && (
+        <p className="tiny">
+          Your private balance is in several pieces, so sending now first joins them, one pool transaction per join, right before the payment. A
+          later time is the more private choice: the joins are spaced out, and the payment goes at a random moment afterwards.
+        </p>
       )}
       {!fromWallet && ready && (
         <Rows
@@ -569,7 +625,7 @@ export function SendForm({ st, wallet }: { st: State; wallet?: WalletLike | null
           </button>
           <p className="tiny">
             Your wallet approves one deposit. It joins your private balance in about {waitLabel}, then goes to the recipient from the pool as a
-            standard SOL transfer, so your wallet never appears next to the payment. Keep this page open until it's handed to the relayer; if you
+            standard SOL transfer, so the payment itself comes from the pool, not your wallet. Keep this page open until it's handed to the relayer; if you
             close it, it picks up next time you open VisionSwap on this device.
           </p>
           <p className="tiny">
@@ -598,6 +654,29 @@ export function SendForm({ st, wallet }: { st: State; wallet?: WalletLike | null
         </>
       )}
     </form>
+  );
+}
+
+/**
+ * Notes before a payment that would be easy to match on the chain (VS-04, VS-15): said calmly, with a
+ * way to send it later instead while "Now" is picked. Nothing is held back: the choice stays the sender's.
+ */
+function PrivacyNotes({ texts, onLater }: { texts: (string | null)[]; onLater: (() => void) | null }) {
+  const shown = texts.filter((t): t is string => !!t);
+  if (!shown.length) return null;
+  return (
+    <div className="privacy-notes" role="note">
+      {shown.map((t) => (
+        <p className="tiny" key={t}>
+          {t}
+        </p>
+      ))}
+      {onLater && (
+        <button type="button" className="link-btn small" onClick={onLater}>
+          Send it later instead
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -712,26 +791,20 @@ function SelfSend({
       document.removeEventListener("visibilitychange", back);
     };
   }, [ready, watched?.address, funding, active]);
-  const visions = st.vision.filter((v) => v.lamports >= need);
-  const choices: [string, string, boolean][] = [
-    ...(fees ?? []).map(
-      (f) =>
-        [
-          `g${f.index}`,
-          `${f.index === engine.gasIndex() ? "A new fee wallet" : `Fee wallet #${f.index + 1}`} · ${fmt(f.lamports, 4)} SOL${f.used ? " · sent a payment before" : ""}`,
-          f.lamports >= need,
-        ] as [string, string, boolean],
-    ),
-    ...visions.map((v) => [`v${v.index}`, `Vision wallet #${v.index + 1} · ${fmt(v.lamports, 4)} SOL`, true] as [string, string, boolean]),
-  ];
-  // until one is picked: a fee wallet that's ready and never sent a payment, else the new one
-  const chosen = payer ?? choices.find(([k, , ok]) => ok && k.startsWith("g") && !fees?.find((f) => `g${f.index}` === k)?.used)?.[0] ?? (fresh ? `g${fresh.index}` : null);
+  // only fee wallets that never sent a payment: a second payment from one would show the same payer as the first
+  // (and never a Vision wallet, whose trades would then be tied to this payment)
+  const usedBefore = (fees ?? []).filter((f) => f.used);
+  const choices: [string, string, boolean][] = (fees ?? [])
+    .filter((f) => !f.used)
+    .map((f) => [`g${f.index}`, `${f.index === engine.gasIndex() ? "A new fee wallet" : `Fee wallet #${f.index + 1}`} · ${fmt(f.lamports, 4)} SOL`, f.lamports >= need] as [string, string, boolean]);
+  // until one is picked: a fee wallet that's ready, else the new one
+  const chosen = (payer && choices.some(([k]) => k === payer) ? payer : null) ?? choices.find(([, , ok]) => ok)?.[0] ?? (fresh ? `g${fresh.index}` : null);
   const pick = choices.find(([k]) => k === chosen);
   const gas = chosen?.startsWith("g") ? fees?.find((f) => `g${f.index}` === chosen) : null;
   const go = () => {
     if (!to || !amount || !chosen) return;
     again.current = go;
-    const p: SelfPayer = chosen.startsWith("v") ? { kind: "vision", index: Number(chosen.slice(1)) } : { kind: "gas", index: Number(chosen.slice(1)) };
+    const p: SelfPayer = { kind: "gas", index: Number(chosen.slice(1)) };
     void engine
       .sendSelf(to, amount, p, confirmed(to))
       .then(() => setPayer(null))
@@ -744,7 +817,18 @@ function SelfSend({
         <p className="small">
           If the relayer is out of service but this page works, a fee wallet of yours can submit the payment instead. It needs about {fmtUp(need, 4)} SOL up
           front and gets its costs back from the payment. The money still comes from the pool, and each payment you send this way uses a new fee wallet.
+          If your balance has to be joined first, the same fee wallet sends those joins too, so they show the same payer on the chain as the payment.
         </p>
+        {!!st.pool?.relayer && (
+          <p className="small muted">
+            Tip: you can fund a fee wallet ahead of time, while the relayer works (“Fund it from my private balance” below), so it's ready if you ever need it.
+          </p>
+        )}
+        {usedBefore.some((f) => f.lamports > 0n) && (
+          <p className="small muted">
+            Fee wallets that already sent a payment aren't offered again: a second payment from one would show both came from the same person.
+          </p>
+        )}
         {!single && <p className="warn">Send it yourself takes one payment at a time: keep just one recipient.</p>}
         {!fees &&
           (feesErr ? (
@@ -810,45 +894,85 @@ function SelfSend({
 
 // ─────────────── Buy ───────────────
 
-type Quote = { inAmount: string; outAmount: string; minOut: string; priceImpactPct: number; route: string[]; feeBps: number; transferFeeBps?: number };
-
-/** Transfer taxes seen in quotes, by mint, so "Auto" can allow for them from the next quote on. */
-const taxes = new Map<string, number>();
+type Quote = { inAmount: string; outAmount: string; minOut: string; priceImpactPct: number; route: string[]; feeBps: number; transferFeeBps?: number; check?: TradeCheck };
 
 /** The price tolerance setting: "auto" or a fixed number of bps. */
 type SlipMode = "auto" | number;
-const resolveSlip = (mode: SlipMode, t: { mint: string; liquidity?: number | null } | null | undefined) =>
-  mode === "auto" ? autoSlippage(t, t ? (taxes.get(t.mint) ?? 0) : 0) : mode;
+const resolveSlip = (mode: SlipMode, t: { mint: string; liquidity?: number | null } | null | undefined) => (mode === "auto" ? autoSlippage(t) : mode);
 
-/** What a quote says about the token itself: its transfer tax, and the price impact without it. */
-function TaxNote({ q, symbol }: { q: Quote; symbol: string }) {
-  const tax = q.transferFeeBps ?? 0;
-  const impact = Math.max(0, q.priceImpactPct - tax / 100);
+/** The trade checks' settings on this device: how far a batch's price may move, and whether trades moving the price more than 15% may be asked about. */
+type GuardPrefs = { driftBps: number; unlocked: boolean };
+function useGuardPrefs(): [GuardPrefs, (p: Partial<GuardPrefs>) => void] {
+  const [p, set] = useState<GuardPrefs>(() => ({ driftBps: clampDrift(ls.get<number>("vs:drift", DRIFT_DEFAULT_BPS)), unlocked: ls.get<boolean>("vs:bigmoves", false) === true }));
+  return [
+    p,
+    (x) => {
+      const next = { ...p, ...x, driftBps: clampDrift(x.driftBps ?? p.driftBps) };
+      ls.set("vs:drift", next.driftBps);
+      ls.set("vs:bigmoves", next.unlocked);
+      set(next);
+    },
+  ];
+}
+
+/**
+ * What a quote's check says about the trade: the taxes and launch curve built into the route, and
+ * a note, a question or a refusal when its price is off (see guard.ts). An older server with no
+ * check: the token's own tax and the price impact, as before.
+ */
+function TaxNote({ q, symbol, mint, side, unlocked }: { q: Quote; symbol: string; mint: string; side: "buy" | "sell"; unlocked: boolean }) {
+  const c = q.check;
+  const others = c ? [...Object.keys(c.taxes), ...(c.curve ? [c.curve.pair] : []), ...Object.keys(c.taxSoon ?? {})].filter((m) => m !== mint) : [];
+  const meta = useTokenMeta([...new Set(others)]);
+  const name = (m: string) => (m === mint ? symbol : (meta[m]?.symbol ?? short(m)));
+  if (!c) {
+    const tax = q.transferFeeBps ?? 0;
+    const impact = Math.max(0, q.priceImpactPct - tax / 100);
+    return (
+      <>
+        {tax > 0 && (
+          <p className="muted small tax-note">
+            {symbol} charges a {pct(tax)} tax on every transfer. It's taken by the token itself, and the amount above already allows for it.
+          </p>
+        )}
+        {impact > 3 && <p className="warn">This trade moves the price by {impact.toFixed(1)}%. Consider a smaller amount.</p>}
+      </>
+    );
+  }
+  const say = checkSay(c, { symbol, side, unlocked });
+  const cost = costSay(c, name);
   return (
     <>
-      {tax > 0 && (
-        <p className="muted small tax-note">
-          {symbol} charges a {pct(tax)} tax on every transfer. It's taken by the token itself, and the amount above already allows for it.
-        </p>
-      )}
-      {impact > 3 && <p className="warn">This trade moves the price by {impact.toFixed(1)}%. Consider a smaller amount.</p>}
+      {cost && <p className={cost.warn ? "small warn tax-note" : "muted small tax-note"}>{cost.text}</p>}
+      {say && <p className="warn">{say.text}</p>}
     </>
   );
 }
 
-/** The quote's fine print, always in view on one quiet line: the least that arrives, how much the trade moves the price, and the route. */
-function QuoteFacts({ q, minOut }: { q: Quote; minOut: string }) {
-  const impact = Math.max(0, q.priceImpactPct - (q.transferFeeBps ?? 0) / 100);
+/** The quote's fine print, always in view on one quiet line: what arrives and the least that may, how far the price is from the market, and the route. */
+function QuoteFacts({ q, expected, minOut }: { q: Quote; expected: string; minOut: string }) {
+  const impact = q.check ? q.check.impactPct : Math.max(0, q.priceImpactPct - (q.transferFeeBps ?? 0) / 100);
+  const market = q.check?.marketPct;
   return (
     <dl className="quote-facts">
+      <div>
+        <dt>Expected</dt>
+        <dd className="num">{expected}</dd>
+      </div>
       <div>
         <dt>Minimum you'll receive</dt>
         <dd className="num">{minOut}</dd>
       </div>
       <div>
         <dt>Price impact</dt>
-        <dd className="num">{impact < 0.01 ? "under 0.01%" : `${impact.toFixed(2)}%`}</dd>
+        <dd className="num">{q.check?.impactUnknown ? "can't tell right now" : impact < 0.01 ? "under 0.01%" : `${impact.toFixed(2)}%`}</dd>
       </div>
+      {q.check && (
+        <div>
+          <dt>Against the market price</dt>
+          <dd className="num">{market == null ? "no market price found" : market <= 0.5 ? "in line" : `${pctText(market)} less`}</dd>
+        </div>
+      )}
       <div>
         <dt>Route</dt>
         <dd>{q.route.slice(0, 3).join(" → ") || "Jupiter"}</dd>
@@ -900,18 +1024,18 @@ function useQuote(params: { inputMint: string; outputMint: string; amount: bigin
         flying.current = true;
         if (fresh) setLoading(true);
         try {
-          const qs = new URLSearchParams({
+          const qs = {
             inputMint: params.inputMint,
             outputMint: params.outputMint,
             amount: params.amount!.toString(),
             slippageBps: String(params.slippageBps),
             side: params.side,
-          });
+          };
           // Jupiter's allowance is shared: when it is busy, wait as long as the server asks and ask again
           let r: Quote | null = null;
           for (let attempt = 0; !r; attempt++) {
             try {
-              r = await api<Quote>(`/api/swap/quote?${qs}`);
+              r = await lookup<Quote>("/api/swap/quote", qs);
             } catch (e) {
               const { status, retryAfter } = e as { status?: number; retryAfter?: number | null };
               const wait = retryAfter ? retryAfter * 1000 : 2500 + attempt * 1500;
@@ -922,8 +1046,6 @@ function useQuote(params: { inputMint: string; outputMint: string; amount: bigin
             }
           }
           if (!dead) {
-            const mint = params.side === "buy" ? params.outputMint : params.inputMint;
-            if (r.transferFeeBps != null) taxes.set(mint, r.transferFeeBps);
             setQ(r);
             setErr(null);
           }
@@ -964,7 +1086,26 @@ function useSpeed(): [Speed, (s: Speed) => void] {
  * Price room and speed, tucked into one small row: the summary shows what's set, and opening it
  * offers presets, a custom room (0.1% to 25%) and the speed.
  */
-function TradeSettings({ mode, bps, onMode, speed, onSpeed }: { mode: SlipMode; bps: number; onMode: (v: SlipMode) => void; speed: Speed; onSpeed: (s: Speed) => void }) {
+function TradeSettings({
+  mode,
+  bps,
+  onMode,
+  speed,
+  onSpeed,
+  prefs,
+  onPrefs,
+  batch,
+}: {
+  mode: SlipMode;
+  bps: number;
+  onMode: (v: SlipMode) => void;
+  speed: Speed;
+  onSpeed: (s: Speed) => void;
+  prefs: GuardPrefs;
+  onPrefs: (p: Partial<GuardPrefs>) => void;
+  /** several wallets: the batch price guard is offered */
+  batch: boolean;
+}) {
   // open or closed as it was left last time, on this device
   const [open, setOpen] = useState(() => ls.get<boolean>("vs:tradeset", false));
   const [custom, setCustom] = useState(typeof mode === "number" && !SLIP_PRESETS.includes(mode) ? String(mode / 100) : "");
@@ -1040,8 +1181,51 @@ function TradeSettings({ mode, bps, onMode, speed, onSpeed }: { mode: SlipMode; 
             ? "Normal pays the usual small network fee. A try that doesn't land is retried with a little more."
             : `${label} pays a network priority fee of at most ${fmt(SPEED_CAP[speed], 4)} SOL, so the trade lands sooner when Solana is busy.`}
         </p>
+        {batch && (
+          <>
+            <div className="slip" role="radiogroup" aria-label="Batch price guard">
+              <span>Batch price guard</span>
+              {DRIFT_CHOICES.map((v) => (
+                <button key={v} type="button" role="radio" aria-checked={prefs.driftBps === v} className={prefs.driftBps === v ? "on" : ""} onClick={() => onPrefs({ driftBps: v })}>
+                  {driftLabel(v)}
+                </button>
+              ))}
+            </div>
+            <p className="muted small">
+              A batch pauses and asks you if a wallet's price is more than {prefs.driftBps / 100}% worse than the price you approved, and no wallet can
+              get less than that.
+            </p>
+          </>
+        )}
+        <label className="check">
+          <input type="checkbox" checked={prefs.unlocked} onChange={(e) => onPrefs({ unlocked: e.target.checked })} />
+          <span>
+            Allow trades that move the price more than {IMPACT_BLOCK_PCT}%
+            <span className="check-hint">Off unless you turn it on. Such a trade still asks you first, and a route priced far from the market is never made.</span>
+          </span>
+        </label>
       </div>
     </details>
+  );
+}
+
+/** The price a batch's last wallet gets (it pays the most: the batch's earlier wallets move the price first), from the whole quote and one without its part. */
+function lastRateOf(q: Quote | null, q2: Quote | null) {
+  if (!q) return null;
+  return lastRate({ in: BigInt(q.inAmount), out: BigInt(q.outAmount) }, q2 ? { in: BigInt(q2.inAmount), out: BigInt(q2.outAmount) } : null);
+}
+
+/** The plain warnings before a batch into a thin, new or fast-moving token, one line each. */
+function BatchRisk({ lines }: { lines: string[] }) {
+  if (!lines.length) return null;
+  return (
+    <div className="batch-risk">
+      {lines.map((l) => (
+        <p key={l} className="small warn">
+          {l}
+        </p>
+      ))}
+    </div>
   );
 }
 
@@ -1054,6 +1238,7 @@ export function BuyForm({ st }: { st: State }) {
   const [mode, setMode] = useState<SlipMode>("auto");
   const [speed, setSpeed] = useSpeed();
   const [pacing, setPacing] = usePacing();
+  const [prefs, setPrefs] = useGuardPrefs();
   const [vary, setVary] = useState(true);
   const [spread, setSpread] = useState(1);
   const [each, setEach] = useState<"same" | "all">("same");
@@ -1088,15 +1273,23 @@ export function BuyForm({ st }: { st: State }) {
   const parts = useMemo(() => {
     if (vision) {
       if (all) return allOfIt(chosen.map((v) => v.lamports), reserve);
-      return lamports && lamports > 0n && chosen.length ? eachAmounts(lamports, chosen.length, vary && chosen.length > 1, Math.random, lamports >= least ? least : 0n) : [];
+      return lamports && lamports > 0n && chosen.length ? eachAmounts(lamports, chosen.length, vary && chosen.length > 1, secureRandom, lamports >= least ? least : 0n) : [];
     }
-    return lamports && lamports > 0n ? splitAmounts(lamports, spread, vary && spread > 1, Math.random, least) : [];
+    return lamports && lamports > 0n ? splitAmounts(lamports, spread, vary && spread > 1, secureRandom, least) : [];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vision, all, chosenKey, reserve, lamports, vary, spread, least]);
   const total = parts.reduce((s, a) => s + a, 0n);
-  // one quote for the whole buy; each wallet's least is scaled from it
+  // one quote for the whole buy, and (several wallets) one without the last wallet's part: the difference is the
+  // price the last wallet gets, which every wallet's turn is then held to
   const slip = resolveSlip(mode, token);
   const { q, err, loading } = useQuote(token && total > 0n ? { inputMint: SOL_MINT, outputMint: token.mint, amount: total, slippageBps: slip, side: "buy" } : null, !st.busy);
+  const lastPart = multi && parts.length > 1 ? parts[parts.length - 1] : 0n;
+  const { q: q2 } = useQuote(token && lastPart > 0n && total > lastPart ? { inputMint: SOL_MINT, outputMint: token.mint, amount: total - lastPart, slippageBps: slip, side: "buy" } : null, !st.busy);
+  const last = multi ? lastRateOf(q, q2) : null;
+  const sym0 = token ? shortSym(token.symbol) : "";
+  const say = token ? checkSay(q?.check, { symbol: sym0, side: "buy", unlocked: prefs.unlocked }) : null;
+  const curvePair = useTokenMeta(q?.check?.curve ? [q.check.curve.pair] : [])[q?.check?.curve?.pair ?? ""]?.symbol ?? (q?.check?.curve ? short(q.check.curve.pair) : null);
+  const risks = multi && token ? batchWarnings({ symbol: token.symbol, liquidity: token.liquidity, created: token.created, change1h: token.change1h, inUsd: q?.check?.inUsd, curvePair }) : [];
 
   // from the private balance: one payment into each new wallet, its amount plus the wallet's reserve
   const sends = !vision ? parts.map((a) => engine.quoteSend(a + reserve)) : [];
@@ -1117,7 +1310,59 @@ export function BuyForm({ st }: { st: State }) {
   const allTicked = ready.length > 0 && ready.slice(0, BATCH_MAX).every((v) => ticked.includes(v.index));
   // one batch takes up to BATCH_MAX wallets (more can be ticked from the Wallets tab)
   const tooMany = n > BATCH_MAX ? n - BATCH_MAX : 0;
-  const blocked = !token || !parts.length || total <= 0n || tooMuch || small || batchBusy || !!st.busy || !q || (vision && !chosen.length) || tooMany > 0;
+  const blocked = !token || !parts.length || total <= 0n || tooMuch || small || batchBusy || !!st.busy || !q || (vision && !chosen.length) || tooMany > 0 || say?.tone === "stop";
+  /** The buy, once the person has said yes to what its review asked (if it asked anything). */
+  const go = async (said: boolean) => {
+    if (blocked || !token || !q) return;
+    const minOut = BigInt(q.minOut);
+    const approval = approvalOf(q.check, { said, unlocked: prefs.unlocked });
+    if (!multi) {
+      const guard: TradeGuard = { ...approval, ...(q.check ? { taxes: q.check.taxes } : {}) };
+      const o = { speed, minOut, symbol: sym, guard };
+      await (vision
+            ? engine.buyFrom(chosen[0].index, token.mint, parts[0], slip, mode === "auto", token.program, o)
+          : engine.buy(token.mint, parts[0], slip, mode === "auto", token.program, o)
+      )
+        .then(() => {
+          setAmt("");
+          if (vision) buyFromVision([]);
+        })
+        .catch(() => {});
+      return;
+    }
+    // every wallet's turn is held to the last wallet's price as shown, within the batch price guard
+    const ref = last ?? { in: BigInt(q.inAmount), out: BigInt(q.outAmount) };
+    const ok = engine.startBatch({
+      kind: vision ? "buyFrom" : "buyNew",
+      pacing,
+      mint: token.mint,
+      symbol: token.symbol,
+      decimals: token.decimals,
+      program: token.program,
+      slippageBps: slip,
+      auto: mode === "auto",
+      speed,
+      ...(all ? { all: true } : {}),
+      refIn: ref.in.toString(),
+      refOut: ref.out.toString(),
+      driftBps: prefs.driftBps,
+      unlocked: prefs.unlocked,
+      ...(approval.okLoss != null ? { okLoss: approval.okLoss } : {}),
+      ...(approval.okNoPrice ? { okNoPriceAt: 0 } : {}),
+      ...(q.check ? { taxes: q.check.taxes } : {}),
+      items: parts.map((a, k) => ({
+        ...(vision ? { index: chosen[k].index } : {}),
+        amount: a.toString(),
+        status: "waiting" as const,
+      })),
+    });
+    if (!ok) return;
+    setAmt("");
+    setTicked([]);
+    buyFromVision([]);
+    toBatchCard();
+  };
+  const buyLabel = !token ? "Buy privately" : multi ? (vision ? `Buy ${sym} with ${n} wallets` : `Buy ${sym} in ${n} new wallets`) : `Buy ${sym} privately`;
   return (
     <form
       className="form"
@@ -1125,44 +1370,9 @@ export function BuyForm({ st }: { st: State }) {
         e.preventDefault();
         // only the Buy button buys: never an Enter typed into the token search
         if (document.activeElement?.closest(".tok-pop")) return;
-        if (blocked || !token || !q) return;
-        const minOut = BigInt(q.minOut);
-        if (!multi) {
-          const o = { speed, minOut };
-          await (vision
-            ? engine.buyFrom(chosen[0].index, token.mint, parts[0], slip, mode === "auto", token.program, o)
-            : engine.buy(token.mint, parts[0], slip, mode === "auto", token.program, o)
-          )
-            .then(() => {
-              setAmt("");
-              if (vision) buyFromVision([]);
-            })
-            .catch(() => {});
-          return;
-        }
-        const ok = engine.startBatch({
-          kind: vision ? "buyFrom" : "buyNew",
-          pacing,
-          mint: token.mint,
-          symbol: token.symbol,
-          decimals: token.decimals,
-          program: token.program,
-          slippageBps: slip,
-          auto: mode === "auto",
-          speed,
-          ...(all ? { all: true } : {}),
-          items: parts.map((a, k) => ({
-            ...(vision ? { index: chosen[k].index } : {}),
-            amount: a.toString(),
-            minOut: scaleMinOut(minOut, a, total).toString(),
-            status: "waiting" as const,
-          })),
-        });
-        if (!ok) return;
-        setAmt("");
-        setTicked([]);
-        buyFromVision([]);
-        toBatchCard();
+        // a review that asks something is answered on its button, never by Enter
+        if (say?.tone === "ask") return;
+        await go(false);
       }}
     >
       {(ready.length > 0 || vision) && (
@@ -1259,7 +1469,7 @@ export function BuyForm({ st }: { st: State }) {
           }
           value={amt}
           onChange={setAmt}
-          hint={vision ? (chosen.length === 1 ? `In it: ${fmt(chosen[0].lamports)} SOL` : undefined) : `Private: ${fmt(engine.spendable())} SOL`}
+          hint={vision ? (chosen.length === 1 ? `In it: ${fmt(chosen[0].lamports)} SOL` : undefined) : `Available: ${fmt(engine.spendable())} SOL`}
           max={most >= 1_000n ? formatUnits(most, 9, 6) : null}
         />
       )}
@@ -1286,11 +1496,34 @@ export function BuyForm({ st }: { st: State }) {
               </span>
             </p>
           )}
-          {q && <TaxNote q={q} symbol={token.symbol} />}
+          {q && <TaxNote q={q} symbol={token.symbol} mint={token.mint} side="buy" unlocked={prefs.unlocked} />}
         </div>
       ) : null}
-      {q && token && total > 0n ? <QuoteFacts q={q} minOut={`${formatUnits(BigInt(q.minOut), token.decimals, 6)} ${token.symbol}`} /> : null}
-      <TradeSettings mode={mode} bps={slip} onMode={setMode} speed={speed} onSpeed={setSpeed} />
+      {q && token && total > 0n ? (
+        <QuoteFacts
+          q={q}
+          expected={`${formatUnits(BigInt(q.outAmount), token.decimals, 6)} ${token.symbol}`}
+          minOut={`${formatUnits(BigInt(q.minOut), token.decimals, 6)} ${token.symbol}`}
+        />
+      ) : null}
+      {q && token && last && lastPart > 0n ? (
+        <Rows
+          rows={[
+            [
+              "The last wallet's price",
+              `about ${formatUnits((lastPart * last.out) / last.in, token.decimals, 4)} ${sym} for its ${fmt(lastPart, 4)} SOL${
+                BigInt(q.outAmount) > 0n && last.out * BigInt(q.inAmount) < BigInt(q.outAmount) * last.in
+                  ? `, ${pctText((1 - Number(last.out * BigInt(q.inAmount)) / Number(BigInt(q.outAmount) * last.in)) * 100)} less per SOL than the average`
+                  : ""
+              }`,
+              "txt",
+            ],
+          ]}
+        />
+      ) : null}
+      {multi && q && <p className="tiny">Every wallet's turn is held to that price: one more than {prefs.driftBps / 100}% worse pauses the batch and asks you first.</p>}
+      <BatchRisk lines={risks} />
+      <TradeSettings mode={mode} bps={slip} onMode={setMode} speed={speed} onSpeed={setSpeed} prefs={prefs} onPrefs={setPrefs} batch={multi} />
       {multi && <PacingControl pacing={pacing} setPacing={setPacing} vary={vary} setVary={all ? undefined : setVary} trade />}
       {vision && total > 0n ? (
         <Rows
@@ -1362,9 +1595,13 @@ export function BuyForm({ st }: { st: State }) {
         </p>
       )}
       {batchBusy && <p className="muted small">Another batch is running. Wait for it to end, or stop it, before starting this one.</p>}
-      <button type="submit" className="btn violet wide" disabled={blocked} title={token ? `Buy ${token.symbol} privately` : undefined}>
-        {!token ? "Buy privately" : multi ? (vision ? `Buy ${sym} with ${n} wallets` : `Buy ${sym} in ${n} new wallets`) : `Buy ${sym} privately`}
-      </button>
+      {say?.tone === "ask" ? (
+        <ConfirmButton className="btn violet wide" label={buyLabel} ask={say.ask!} yes="Yes, buy" no="Go back" disabled={blocked} onYes={() => void go(true)} />
+      ) : (
+        <button type="submit" className="btn violet wide" disabled={blocked} title={token ? `Buy ${token.symbol} privately` : undefined}>
+          {buyLabel}
+        </button>
+      )}
       <p className="tiny">
         {multi
           ? vision
@@ -1374,7 +1611,7 @@ export function BuyForm({ st }: { st: State }) {
             ? chosen.length
               ? `The token lands in Vision wallet #${next}, where the SOL already is.`
               : "Tick the wallets to buy with. The token lands in each one, where the SOL already is."
-            : `The token lands in Vision wallet #${next}, a fresh address funded from the pool. Nothing links it to the wallet you shielded from.`}
+            : `The token lands in Vision wallet #${next}, a fresh address funded from the pool, not from the wallet you shielded from.`}
       </p>
     </form>
   );
@@ -1401,9 +1638,10 @@ function useStuck(h: Holding | undefined, signs: boolean): boolean {
       // a probe sent moments ago (the signs came and went while typing) isn't sent again: the next one keeps its 2-min spacing
       const since = document.hidden ? null : probeTooSoon(h.mint);
       if (!document.hidden && since == null) {
-        const slice = h.amount / 100n > 0n ? h.amount / 100n : h.amount;
+        // (rounded to one significant digit: the exact holding never goes in a quote)
+        const slice = bucketAmount(h.amount / 100n > 0n ? h.amount / 100n : h.amount);
         try {
-          await api(`/api/swap/quote?inputMint=${h.mint}&outputMint=${SOL_MINT}&amount=${slice}&slippageBps=500&side=sell`);
+          await lookup("/api/swap/quote", { inputMint: h.mint, outputMint: SOL_MINT, amount: slice.toString(), slippageBps: 500, side: "sell" });
           sawRoute(h.mint);
         } catch (e) {
           // only a plain "no route" counts; a busy service or a network error says nothing either way
@@ -1443,6 +1681,7 @@ export function SellForm({ st }: { st: State }) {
   const [mode, setMode] = useState<SlipMode>("auto");
   const [speed, setSpeed] = useSpeed();
   const [pacing, setPacing] = usePacing();
+  const [prefs, setPrefs] = useGuardPrefs();
   // one wallet's holding, or the same share of every wallet holding this token
   const [scope, setScope] = useState<"one" | "all">("one");
   const [share, setShare] = useState<number | null>(null);
@@ -1459,7 +1698,16 @@ export function SellForm({ st }: { st: State }) {
   const sellTok = h ? { mint: h.mint, liquidity: meta[h.mint]?.liquidity } : null;
   const slip = resolveSlip(mode, sellTok);
   const { q, err, loading } = useQuote(h && raw ? { inputMint: h.mint, outputMint: SOL_MINT, amount: raw, slippageBps: slip, side: "sell" } : null, !st.busy);
+  // several wallets: a quote without the last wallet's share too, for the price the last one gets
+  const lastShare = across && parts.length > 1 ? parts[parts.length - 1] : 0n;
+  const { q: q2 } = useQuote(h && lastShare > 0n && sum > lastShare ? { inputMint: h.mint, outputMint: SOL_MINT, amount: sum - lastShare, slippageBps: slip, side: "sell" } : null, !st.busy);
+  const last = across ? lastRateOf(q, q2) : null;
   const t = h ? meta[h.mint] : undefined;
+  const sym1 = t?.symbol ?? short(h?.mint ?? "");
+  const say = h ? checkSay(q?.check, { symbol: sym1, side: "sell", unlocked: prefs.unlocked }) : null;
+  const curveMeta = useTokenMeta(q?.check?.curve ? [q.check.curve.pair] : []);
+  const curvePair = q?.check?.curve ? (curveMeta[q.check.curve.pair]?.symbol ?? short(q.check.curve.pair)) : null;
+  const risks = across && t ? batchWarnings({ symbol: sym1, liquidity: t.liquidity, created: t.created, change1h: t.change1h, inUsd: q?.check?.inUsd, curvePair }) : [];
   // a token with no route at all (a spam airdrop, a rug) can be cleared for its account's rent; never while a quote shows it sells
   const unsellable = useStuck(h, !q && ((!!err && /no route/i.test(err)) || (!!t && t.price == null && !t.liquidity)));
 
@@ -1488,49 +1736,63 @@ export function SellForm({ st }: { st: State }) {
   const clash = !across && h && raw && !tooMuch ? engine.orderClash(h.index, h.mint, raw) : null;
   const setPart = (share: bigint) => h && setAmt(formatUnits((h.amount * share) / 100n, h.decimals, h.decimals).replace(/,/g, ""));
   const batchBusy = across && batchLive(st.batch);
-  const sellOne = async () => {
+  const sellOne = async (said: boolean) => {
     if (!h || !raw || tooMuch || !q) return;
+    const guard: TradeGuard = { ...approvalOf(q.check, { said, unlocked: prefs.unlocked }), ...(q.check ? { taxes: q.check.taxes } : {}) };
     await engine
-      .sell(h.index, h.mint, raw, slip, mode === "auto", { speed, minOut: BigInt(q.minOut), orders: !!clash })
+      .sell(h.index, h.mint, raw, slip, mode === "auto", { speed, minOut: BigInt(q.minOut), orders: !!clash, guard, symbol: shortSym(symbol) })
       .then(() => setAmt(""))
       .catch(() => {});
   };
-  const sellOff = !h || !raw || !!tooMuch || !!st.busy || !q || (across && (!share || batchBusy));
+  const sellOff = !h || !raw || !!tooMuch || !!st.busy || !q || (across && (!share || batchBusy)) || say?.tone === "stop";
+  /** A sale from several wallets, each held to the last wallet's price as shown, within the batch price guard. */
+  const sellAcross = (said: boolean) => {
+    if (!h || !raw || tooMuch || !q || !share || batchBusy || st.busy || say?.tone === "stop") return;
+    const approval = approvalOf(q.check, { said, unlocked: prefs.unlocked });
+    const ref = last ?? { in: BigInt(q.inAmount), out: BigInt(q.outAmount) };
+    const ok = engine.startBatch({
+      kind: "sell",
+      pacing,
+      mint: h.mint,
+      symbol,
+      decimals: h.decimals,
+      slippageBps: slip,
+      auto: mode === "auto",
+      speed,
+      refIn: ref.in.toString(),
+      refOut: ref.out.toString(),
+      driftBps: prefs.driftBps,
+      unlocked: prefs.unlocked,
+      ...(approval.okLoss != null ? { okLoss: approval.okLoss } : {}),
+      ...(approval.okNoPrice ? { okNoPriceAt: 0 } : {}),
+      ...(q.check ? { taxes: q.check.taxes } : {}),
+      items: clean.map((x, k) => ({
+        index: x.index,
+        amount: parts[k].toString(),
+        before: x.amount.toString(),
+        status: "waiting" as const,
+      })),
+    });
+    if (ok) {
+      setShare(null);
+      toBatchCard();
+    }
+  };
+  // what the sell button asks first: a live order the sale changes, a price the review wants a yes for, or both
+  const askText = [clash?.text, say?.tone === "ask" ? say.ask : null].filter(Boolean).join(" ");
+  const asks = !!clash || say?.tone === "ask";
   return (
     <form
       className="form"
       onSubmit={async (e) => {
         e.preventDefault();
         if (!h || !raw || tooMuch || !q) return;
-        if (across) {
-          if (!share || batchBusy || st.busy) return;
-          const ok = engine.startBatch({
-            kind: "sell",
-            pacing,
-            mint: h.mint,
-            symbol,
-            decimals: h.decimals,
-            slippageBps: slip,
-            auto: mode === "auto",
-            speed,
-            // each wallet's sale holds to its share of the least shown (a try again takes the price then)
-            items: clean.map((x, k) => ({
-              index: x.index,
-              amount: parts[k].toString(),
-              minOut: scaleMinOut(BigInt(q.minOut), parts[k], sum).toString(),
-              before: x.amount.toString(),
-              status: "waiting" as const,
-            })),
-          });
-          if (ok) {
-            setShare(null);
-            toBatchCard();
-          }
-          return;
-        }
+        // a review that asks something is answered on its button, never by Enter
+        if (say?.tone === "ask") return;
+        if (across) return sellAcross(false);
         // a live order in the wallet: asked in place, by the button below
         if (clash) return;
-        await sellOne();
+        await sellOne(false);
       }}
     >
       <label className="field">
@@ -1627,22 +1889,37 @@ export function SellForm({ st }: { st: State }) {
               This sale's SOL stays in Vision wallet #{h.index + 1} for now: with what the wallet keeps for fees, it's below the smallest deposit.{" "}
               {raw < h.amount
                 ? 'Sell more, or all of it, then use "Move back to private balance" in the Wallets tab.'
-                : '"Send to an address" in the Wallets tab can move it afterwards.'}
+                : "It goes back with the rest if the wallet is funded again."}
             </p>
           )}
-          {q && <TaxNote q={q} symbol={t?.symbol ?? "This token"} />}
+          {q && h && <TaxNote q={q} symbol={t?.symbol ?? "This token"} mint={h.mint} side="sell" unlocked={prefs.unlocked} />}
         </div>
       ) : null}
-      {q && raw ? <QuoteFacts q={q} minOut={`${fmt(BigInt(q.minOut), 6)} SOL`} /> : null}
-      <TradeSettings mode={mode} bps={slip} onMode={setMode} speed={speed} onSpeed={setSpeed} />
+      {q && raw ? <QuoteFacts q={q} expected={`${fmt(BigInt(q.outAmount), 6)} SOL`} minOut={`${fmt(BigInt(q.minOut), 6)} SOL`} /> : null}
+      {q && h && last && lastShare > 0n ? (
+        <Rows rows={[["The last wallet's price", `about ${fmt((lastShare * last.out) / last.in, 6)} SOL for its ${formatUnits(lastShare, h.decimals, 4)} ${shortSym(symbol)}`, "txt"]]} />
+      ) : null}
+      {across && q && (
+        <p className="tiny">Every wallet's sale is held to that price: one more than {prefs.driftBps / 100}% worse pauses the batch and asks you first.</p>
+      )}
+      <BatchRisk lines={risks} />
+      <TradeSettings mode={mode} bps={slip} onMode={setMode} speed={speed} onSpeed={setSpeed} prefs={prefs} onPrefs={setPrefs} batch={across} />
       {across && <PacingControl pacing={pacing} setPacing={setPacing} trade />}
       {q && engine.depositFeeBps() > 0 && <Rows rows={[[`Pool fee (${pct(engine.depositFeeBps())})`, "taken as the SOL goes back into the pool", "txt"]]} />}
       {q && q.feeBps > 0 && <Rows rows={[[`Swap fee (${pct(q.feeBps)})`, "taken from the SOL you receive", "txt"]]} />}
       {tooMuch && <p className="warn">That's more than the Vision wallet holds.</p>}
       {clash && <p className="muted small">{clash.text}</p>}
       {batchBusy && <p className="muted small">Another batch is running. Wait for it to end, or stop it, before starting this one.</p>}
-      {clash ? (
-        <ConfirmButton className="btn violet wide" label="Sell privately" ask={`${clash.text} Sell anyway?`} yes="Yes, sell" no="Don't sell" disabled={sellOff} onYes={() => void sellOne()} />
+      {asks ? (
+        <ConfirmButton
+          className="btn violet wide"
+          label={across ? (share ? `Sell ${share}% from ${clean.length} wallets` : `Sell from ${clean.length} wallets`) : "Sell privately"}
+          ask={say?.tone === "ask" ? askText : `${askText} Sell anyway?`}
+          yes="Yes, sell"
+          no="Don't sell"
+          disabled={sellOff}
+          onYes={() => (across ? sellAcross(true) : void sellOne(true))}
+        />
       ) : (
         <button className="btn violet wide" disabled={sellOff}>
           {across ? (share ? `Sell ${share}% from ${clean.length} wallets` : `Sell from ${clean.length} wallets`) : "Sell privately"}

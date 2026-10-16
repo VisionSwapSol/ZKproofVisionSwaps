@@ -1,17 +1,15 @@
-import { useEffect, useState } from "react";
-import { API } from "../lib/config";
 import { XLink } from "./XLink";
-
-let legalCache: Promise<{ repo: string | null; contact: string | null }> | null = null;
+import { TOKEN_LAUNCH_ENABLED } from "../lib/token-launch";
+import { AndroidAppLink } from "./GetApp";
+import { shownLegal, useLegal } from "../legal/useLegal";
+import { contactText } from "../legal/settings";
+import { SUPPORT_EMAIL, mailto } from "../lib/contacts";
 
 export function Footer() {
-  const [repo, setRepo] = useState<string | null>(null);
-  useEffect(() => {
-    legalCache ??= fetch(`${API}/api/legal`)
-      .then((r) => r.json())
-      .catch(() => ({ repo: null, contact: null }));
-    legalCache.then((l) => setRepo(l.repo)).catch(() => {});
-  }, []);
+  const legal = shownLegal(useLegal());
+  const repo = legal.repo;
+  // BUSINESS_CONTACT: business@visionswap.net unless the owner names another (the default until /api/legal answers)
+  const business = legal.business;
   return (
     <footer className="foot">
       <div className="wrap">
@@ -25,11 +23,16 @@ export function Footer() {
             <a href="/app">App</a>
             <a href="/why">Why VisionSwap?</a>
             <a href="/roadmap">Roadmap</a>
-            <a href="/tokenomics">Tokenomics</a>
+            {TOKEN_LAUNCH_ENABLED && <a href="/tokenomics">Tokenomics</a>}
             <a href="/check">Exposure check</a>
+            <AndroidAppLink />
             <a href="/docs">Docs</a>
-            <a href="/docs#security">Security</a>
+            <a href="/faq">FAQ</a>
+            <a href="/support">Support</a>
+            <a href="/security">Security</a>
+            <a href="/compliance">Compliance</a>
             <a href="/terms">Terms</a>
+            <a href="/privacy">Privacy</a>
             <XLink className="foot-x" label />
             {repo && (
               <a href={repo} target="_blank" rel="noreferrer noopener">
@@ -38,9 +41,20 @@ export function Footer() {
             )}
           </nav>
         </div>
+        <p className="foot-contact">
+          <span>
+            Contact: <a href={mailto(SUPPORT_EMAIL)}>{SUPPORT_EMAIL}</a>
+          </span>{" "}
+          {business && (
+            <span>
+              Business and press: <a href={business}>{contactText(business)}</a>
+            </span>
+          )}
+        </p>
         <p className="foot-small">
-          VisionSwap is open-source software that runs on Solana. It does not hold your money. Not available to people
-          or places under sanctions. Nothing here is financial advice.
+          {repo ? "VisionSwap is open-source software that runs on Solana." : "VisionSwap is software that runs on Solana."} Your
+          spending and viewing keys stay in your browser, and we never receive them. Not offered to people on sanctions lists or in{" "}
+          <a href="/compliance#places">restricted places</a> (Terms of use, section 2). Nothing here is financial advice.
         </p>
       </div>
     </footer>

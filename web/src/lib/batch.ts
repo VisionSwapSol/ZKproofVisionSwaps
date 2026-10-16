@@ -4,6 +4,8 @@
 // item is at, what a reload finds, what to say at the end) live here, pure, so the tests pin them
 // down. The engine runs the items; the page only shows them.
 import { fundAmounts, walletName } from "./vwallets";
+import { secureRandom } from "./poll";
+import type { Hold, TradeGuard } from "./guard";
 
 export type BatchKind = "buyFrom" | "buyNew" | "sell" | "move" | "send";
 export type ItemStatus = "waiting" | "running" | "done" | "failed" | "skipped";
@@ -15,7 +17,7 @@ export type BatchItem = {
   /** the Vision wallet (a buy into new wallets learns it when the wallet is taken) */
   index?: number;
   amount: string;
-  /** the least of the token this part may get (scaled from the quote shown); dropped on a retry, which takes a fresh price */
+  /** the least of the token this part may get (scaled from the quote shown), for a batch started before it kept its approved price */
   minOut?: string;
   status: ItemStatus;
   sig?: string;
@@ -30,6 +32,8 @@ export type BatchItem = {
   finish?: boolean;
   /** retries made by themselves after a busy server */
   tries?: number;
+  /** a spaced-out buy into a new wallet: the joins its payment from the pool needed were made at a turn of their own (its payment comes at the next) */
+  joined?: boolean;
 };
 
 export type Batch = {
@@ -55,6 +59,25 @@ export type Batch = {
   to?: string;
   /** "Stop the rest" was pressed: nothing more starts, even a wallet a reload finds unstarted */
   stopped?: boolean;
+  /**
+   * The approved price, as the review showed it for the batch's last wallet (the one that pays the
+   * most, after the batch's own earlier trades): `refOut` of the output for `refIn` of the input.
+   * Every turn, spaced out or back to back, a try again or a finish, is held to it.
+   */
+  refIn?: string;
+  refOut?: string;
+  /** how far a turn's price may move from the approved one before the batch stops to ask (bps; 5% unless set) */
+  driftBps?: number;
+  /** the largest move against the market price the person said yes to (pct) */
+  okLoss?: number;
+  /** the one wallet allowed to go without a market price to check it against (never more than one, never by itself) */
+  okNoPriceAt?: number;
+  /** "Allow trades that move the price more than 15%" was on when it started */
+  unlocked?: boolean;
+  /** transfer taxes when approved, bps by mint */
+  taxes?: Record<string, number>;
+  /** why it stopped by itself to ask: nothing more happens until the person chooses */
+  hold?: Hold;
 };
 
 /** At least this many wallets make a batch (one is today's single action), and at most this many. */
@@ -75,11 +98,12 @@ export function partMin(sweepMin: bigint | null, reserve: bigint): bigint {
 }
 
 /**
- * `total` split into `n` parts that add up to it exactly. With `vary`, each part is moved by up to
- * about 3% either way (and rounded to 0.0001 SOL, the last one carrying the rounding), so the
- * parts don't look alike. `rnd` gives numbers in [0, 1).
+ * `total` split into `n` parts that add up to it exactly. With `vary`, each part is moved on its own
+ * by up to about 3% either way, to the lamport (no shared rounding grid, and the few lamports of
+ * rounding go to parts picked at random, never always the last), so the parts don't look alike or
+ * like one batch. `rnd` gives numbers in [0, 1) (the secure random source unless a test passes its own).
  */
-export function splitAmounts(total: bigint, n: number, vary: boolean, rnd: () => number = Math.random, floor = 0n): bigint[] {
+export function splitAmounts(total: bigint, n: number, vary: boolean, rnd: () => number = secureRandom, floor = 0n): bigint[] {
   if (n <= 0) return [];
   if (!vary) {
     const each = total / BigInt(n);
@@ -88,16 +112,16 @@ export function splitAmounts(total: bigint, n: number, vary: boolean, rnd: () =>
   // each moved by up to 1.5% either way, then all moved together so they still add up: none ends more than 3% away
   const d = Array.from({ length: n }, () => (rnd() * 2 - 1) * 150);
   const mean = d.reduce((s, x) => s + x, 0) / n;
-  const out: bigint[] = [];
-  let sum = 0n;
-  for (let i = 0; i < n - 1; i++) {
-    const ppm = BigInt(Math.round((1 + (d[i] - mean) / 10_000) * 1_000_000));
-    let a = (total * ppm) / (BigInt(n) * 1_000_000n);
-    a -= a % 100_000n;
-    out.push(a);
-    sum += a;
+  // weights in parts per 10^12, so the parts vary to the lamport (a coarser scale would leave them all on one grid)
+  const w = d.map((x) => BigInt(Math.round((1 + (x - mean) / 10_000) * 1e12)));
+  const sw = w.reduce((s, x) => s + x, 0n);
+  const out = w.map((x) => (total * x) / sw);
+  // what flooring left over (fewer lamports than parts): one lamport each to parts picked at random
+  let left = total - out.reduce((s, x) => s + x, 0n);
+  while (left > 0n) {
+    out[Math.min(n - 1, Math.floor(rnd() * n))] += 1n;
+    left--;
   }
-  out.push(total - sum);
   return liftTo(out, floor);
 }
 
@@ -122,7 +146,7 @@ export function liftTo(parts: bigint[], floor: bigint): bigint[] {
 }
 
 /** `n` parts of about `each` (the same, or with `vary` each moved by up to 3%), never below `floor`. */
-export const eachAmounts = (each: bigint, n: number, vary: boolean, rnd: () => number = Math.random, floor = 0n) => fundAmounts(each, n, vary, rnd, floor);
+export const eachAmounts = (each: bigint, n: number, vary: boolean, rnd: () => number = secureRandom, floor = 0n) => fundAmounts(each, n, vary, rnd, floor);
 
 /** "All of it": what each wallet can spend, keeping `reserve` for its fees (whole thousands of lamports; 0 when it can't). */
 export function allOfIt(lamports: bigint[], reserve: bigint): bigint[] {
@@ -140,8 +164,8 @@ export function scaleMinOut(minOut: bigint, part: bigint, total: bigint): bigint
   return total > 0n ? (minOut * part) / total : 0n;
 }
 
-/** The gap before the next wallet's turn. */
-export function gapMs(pacing: Pacing, rnd: () => number = Math.random): number {
+/** The gap before the next wallet's turn (from the secure random source unless a test passes its own). */
+export function gapMs(pacing: Pacing, rnd: () => number = secureRandom): number {
   return pacing === "fast" ? FAST_GAP : 10_000 + Math.floor(rnd() * 50_001);
 }
 
@@ -157,6 +181,7 @@ export function plainReason(msg: string): string {
   if (/could not find mint|invalid mint|no route|not tradable|no market/i.test(m)) return "no market for this token right now";
   if (busyError(m)) return "the service was busy just then";
   if (/price (has )?moved/i.test(m)) return "the price moved past your price tolerance";
+  if (/won't make it/i.test(m)) return "its route was too far from the market price";
   m = m
     .replace(/\s*(Your|The|Its) [\d.,]+ SOL is safe in Vision wallet #\d+[\s\S]*$/, "")
     .replace(/\s*The SOL is still in Vision wallet #\d+[\s\S]*$/, "")
@@ -188,21 +213,76 @@ export function setItem(b: Batch, k: number, patch: Partial<BatchItem>): Batch {
 
 /** "Stop the rest": the wallets that haven't had their turn keep what they hold. A running one finishes. */
 export function stopRest(b: Batch): Batch {
-  return { ...b, paused: false, stopped: true, items: b.items.map((x) => (x.status === "waiting" ? { ...x, status: "skipped" } : x)) };
+  return { ...b, paused: false, stopped: true, hold: undefined, items: b.items.map((x) => (x.status === "waiting" ? { ...x, status: "skipped" } : x)) };
 }
 
-/** "Try those again": the ones that didn't go through (or were stopped) get another turn, at today's price (no old minimum). */
+/**
+ * "Try those again": the ones that didn't go through (or were stopped) get another turn. The
+ * approved price still holds (a turn that moved past it stops to ask); only a batch started before
+ * there was one trades at the price of the turn.
+ */
 export function retryFailed(b: Batch, now: number): Batch {
   return {
     ...b,
     paused: false,
     stopped: false,
+    hold: undefined,
+    okNoPriceAt: undefined,
     nextAt: now,
     items: b.items.map((x) => {
       if (x.status !== "failed" && x.status !== "skipped") return x;
-      const { error: _e, minOut: _m, tries: _t, ...rest } = x;
+      const { error: _e, minOut: _m, tries: _t, joined: _j, ...rest } = x;
       return { ...rest, status: "waiting" };
     }),
+  };
+}
+
+/**
+ * A turn that stopped to ask (its price moved past the approved one, or the market check wants a
+ * yes): the batch pauses with the reason, and that wallet waits for its turn again. Nothing more
+ * happens by itself.
+ */
+export function holdBatch(b: Batch, k: number, hold: Hold, finish = false): Batch {
+  return {
+    ...b,
+    paused: true,
+    hold: { ...hold, k },
+    items: b.items.map((x, i) => (i === k ? { ...x, status: "waiting" as const, error: undefined, ...(finish ? { finish: true } : {}) } : x)),
+  };
+}
+
+/**
+ * "Continue" on a batch that stopped to ask: what the person now agrees to is kept (the new price
+ * as the approved one, the loss they said yes to, the new tax), and the waiting wallet goes next.
+ * Going without a market price is agreed for that one wallet only.
+ */
+export function continueHeld(b: Batch, now: number): Batch {
+  const h = b.hold;
+  const base: Batch = { ...b, hold: undefined, paused: false, nextAt: now };
+  if (!h) return base;
+  switch (h.why) {
+    case "drift":
+      return h.nowIn && h.nowOut ? { ...base, refIn: h.nowIn, refOut: h.nowOut } : base;
+    case "market":
+      return { ...base, okLoss: Math.max(b.okLoss ?? 0, h.loss ?? 0) };
+    case "noprice":
+      return { ...base, okNoPriceAt: h.k };
+    case "tax":
+      return { ...base, taxes: { ...b.taxes, ...h.taxes } };
+    default:
+      return base;
+  }
+}
+
+/** What one turn is held to: the approved price and its limit, and what the person agreed to. */
+export function turnGuard(b: Batch, k: number): TradeGuard {
+  return {
+    ...(b.refIn && b.refOut ? { ref: { in: BigInt(b.refIn), out: BigInt(b.refOut) } } : {}),
+    ...(b.driftBps != null ? { driftBps: b.driftBps } : {}),
+    okLoss: b.okLoss ?? null,
+    okNoPrice: b.okNoPriceAt === k,
+    unlocked: !!b.unlocked,
+    ...(b.taxes ? { taxes: b.taxes } : {}),
   };
 }
 

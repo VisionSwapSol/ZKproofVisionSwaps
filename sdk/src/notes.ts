@@ -1,4 +1,5 @@
 import { sha256, sha512 } from "@noble/hashes/sha2.js";
+import { hmac } from "@noble/hashes/hmac.js";
 import { concat, equalBytes, fromLE, toLE, wideToField, FIELD } from "./field.ts";
 import { H2, H3 } from "./poseidon.ts";
 import type { Keys } from "./keys.ts";
@@ -10,6 +11,11 @@ import type { Keys } from "./keys.ts";
  *
  * tag and mask come from the view key and the random nonce, so only the owner
  * can recognise a note or read its amount; to everyone else they are noise.
+ *
+ * New notes carry tag2 = HMAC-SHA256(viewKey, "vs:tag2" || nonce || amount LE)[0..8], which also
+ * binds the amount: someone who copies a note's `inner` and meta (they are public once it is
+ * deposited) can't make a note of a different amount that the owner's wallet accepts. Notes made
+ * before carry the older tag (nonce only) and still open.
  */
 export const META_LEN = 28;
 const te = new TextEncoder();
@@ -38,6 +44,10 @@ function tagOf(k: Keys, nonce: Uint8Array): Uint8Array {
   return sha256(concat(utf8("vs:tag"), k.viewKey, nonce)).slice(0, 8);
 }
 
+function tag2Of(k: Keys, nonce: Uint8Array, amount: bigint): Uint8Array {
+  return hmac(sha256, k.viewKey, concat(utf8("vs:tag2"), nonce, toLE(amount, 8))).slice(0, 8);
+}
+
 function maskOf(k: Keys, nonce: Uint8Array): Uint8Array {
   return sha256(concat(utf8("vs:amt"), k.viewKey, nonce)).slice(0, 8);
 }
@@ -57,7 +67,7 @@ export function encodeMeta(k: Keys, nonce: Uint8Array, amount: bigint): Uint8Arr
   const enc = toLE(amount, 8);
   const mask = maskOf(k, nonce);
   for (let i = 0; i < 8; i++) enc[i] ^= mask[i];
-  return concat(nonce, tagOf(k, nonce), enc);
+  return concat(nonce, tag2Of(k, nonce, amount), enc);
 }
 
 export function nullifierOf(k: Keys, leaf: bigint, index: number): bigint {
@@ -69,12 +79,14 @@ export function nullifierOf(k: Keys, leaf: bigint, index: number): bigint {
 export function tryOpen(k: Keys, index: number, leaf: bigint, meta: Uint8Array): OwnedNote | null {
   if (meta.length !== META_LEN) return null;
   const nonce = meta.slice(0, 12);
-  if (!equalBytes(meta.slice(12, 20), tagOf(k, nonce))) return null;
+  const tag = meta.slice(12, 20);
   const enc = meta.slice(20, 28);
   const mask = maskOf(k, nonce);
   const plain = new Uint8Array(8);
   for (let i = 0; i < 8; i++) plain[i] = enc[i] ^ mask[i];
   const amount = fromLE(plain);
+  // the older tag first (one hash), then the amount-bound one
+  if (!equalBytes(tag, tagOf(k, nonce)) && !equalBytes(tag, tag2Of(k, nonce, amount))) return null;
   const blinding = noteBlinding(k, nonce);
   if (H2(amount, H2(k.pubKey, blinding)) !== leaf) return null;
   return { index, leaf, amount, nonce, blinding, nullifier: nullifierOf(k, leaf, index) };

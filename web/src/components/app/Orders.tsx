@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { engine, fmt, orderName, visionReserve, type Order, type OrderPatch, type State } from "../../lib/engine";
-import { api, explorer, formatUnits, parseSol, parseUnits, short } from "../../lib/net";
+import { explorer, formatUnits, lookup, parseSol, parseUnits, short } from "../../lib/net";
 import { copyText } from "../../lib/copy";
 import { normAmount } from "../../lib/amount";
 import { onBuyFrom, onSellFrom } from "../../lib/buyfrom";
 import { ago, fillStats, inTime, leftOf, legsFor, metNow, parsePrice, priceEntry, priceStale, priceText, shareOf, shrinkLegs, stageText, stepsKept, usd } from "../../lib/orders";
 import { useTokenMeta } from "../../lib/tokenmeta";
+import { bucketAmount } from "../../lib/tokenfacts";
 import { useTabActive } from "./TabActive";
 import { TokenPicker, TokenIcon, type Token } from "./TokenPicker";
 import { AddSol, AmountField, BuyForm, Rows, SellForm, shortText } from "./Forms";
@@ -56,7 +57,7 @@ function useLivePrice(mint: string | null | undefined, fallback: number | null) 
   const refresh = useCallback(async (): Promise<number | null> => {
     if (!mint) return null;
     try {
-      const r = await api<Record<string, unknown>>(`/api/price?ids=${mint}&at=1`);
+      const r = await lookup<Record<string, unknown>>("/api/price", { ids: mint, at: 1 });
       const e = priceEntry(r[mint]);
       setGot({ mint, usd: e?.usd ?? null, at: e?.at ?? Date.now() });
       return e && !priceStale(e.at) ? e.usd : null;
@@ -302,7 +303,7 @@ function LimitBuy({ st }: { st: State }) {
       }}
     >
       <TokenField token={token} setToken={setToken} />
-      <AmountField label="Spend from your private balance" value={amt} onChange={setAmt} hint={`Private: ${fmt(engine.spendable())} SOL`} max={f.max} />
+      <AmountField label="Spend from your private balance" value={amt} onChange={setAmt} hint={`Available: ${fmt(engine.spendable())} SOL`} max={f.max} />
       <PriceField label="Buy when the price is at or below" value={price} onChange={(v) => (setPrice(v), setRefused(null))} now={now} at={at} moves={[-5, -10, -20, -30]} />
       {(met ?? refused) && <p className="warn">{met ?? refused}</p>}
       {token && now == null && <p className="muted small">No live price for this token right now, so a limit buy can't watch it yet.</p>}
@@ -356,7 +357,7 @@ function Dca({ st }: { st: State }) {
       }}
     >
       <TokenField token={token} setToken={setToken} />
-      <AmountField label="Total to spend" value={amt} onChange={setAmt} hint={`Private: ${fmt(engine.spendable())} SOL`} max={f.max} />
+      <AmountField label="Total to spend" value={amt} onChange={setAmt} hint={`Available: ${fmt(engine.spendable())} SOL`} max={f.max} />
       <Chips label="Buys" value={count} onChange={setCount} options={[[4, "4"], [7, "7"], [14, "14"], [30, "30"]]} />
       <Chips label="Every" value={every} onChange={setEvery} options={everyOk.length ? everyOk : EVERY} />
       {per && !small && (
@@ -618,7 +619,8 @@ function SellOrder({ st }: { st: State }) {
     if (!h || !active || key === taxFor.current) return;
     taxFor.current = key;
     let again: ReturnType<typeof setTimeout> | undefined;
-    api<{ transferFeeBps?: number }>(`/api/swap/quote?inputMint=${h.mint}&outputMint=${SOL_MINT}&amount=${h.amount}&slippageBps=500&side=sell`)
+    // (the tax doesn't depend on the amount: a rounded one is asked for, never the exact holding)
+    lookup<{ transferFeeBps?: number }>("/api/swap/quote", { inputMint: h.mint, outputMint: SOL_MINT, amount: bucketAmount(h.amount).toString(), slippageBps: 500, side: "sell" })
       .then((q) => taxFor.current === key && setTax(q.transferFeeBps ?? 0))
       .catch(() => {
         // a busy moment: asked again shortly (and whenever the tab is shown again)

@@ -3,6 +3,7 @@ import { engine, fmt, type State } from "../../lib/engine";
 import { formatUnits } from "../../lib/net";
 import { ls } from "../../lib/idb";
 import { batchCounts, batchFinished, batchSummary, batchTitle, itemName, nextWaiting, plainReason, resumeLine, type Batch, type BatchItem, type Pacing } from "../../lib/batch";
+import { continueLabel } from "../../lib/guard";
 import { CopyLink } from "./Panels";
 
 const PACING = "vs:pacing";
@@ -76,8 +77,8 @@ export function PacingControl({
       </div>
       <p className="tiny when-note">
         {pacing === "spaced"
-          ? `A random 10 to 60 seconds between wallets. Harder to link your wallets together.${trade ? " Each wallet trades at the price of its turn, within your price room." : ""}`
-          : `Fastest: a few seconds apart. Easier to see the wallets belong together.${trade ? " Every wallet keeps to the price shown." : ""}`}
+          ? `A random 10 to 60 seconds between wallets. Harder to link your wallets together.${trade ? " Each wallet trades at the price of its turn, and the batch pauses to ask you if that moves past its price guard." : ""}`
+          : `Fastest: a few seconds apart. Easier to see the wallets belong together.${trade ? " Every wallet is held to the price you approve." : ""}`}
       </p>
       {setVary && (
         <label className="check">
@@ -141,7 +142,7 @@ export function BatchCard({ st }: { st: State }) {
     }
     if (x.status === "waiting") {
       if (away) return <span className="muted">Waiting</span>;
-      if (b.paused) return <span className="muted">{x.finish ? "Waiting to finish its buy" : "Waiting"}</span>;
+      if (b.paused) return <span className={b.hold?.k === k ? "vw-next" : "muted"}>{b.hold?.k === k ? "Waiting for you" : x.finish ? "Waiting to finish its buy" : "Waiting"}</span>;
       if (k !== next) return <span className="muted">Waiting</span>;
       if (queued) return <span className="vw-next">Next in line, after the action running now</span>;
       // (the wallet before it is still at work: its gap starts once that one ends)
@@ -160,17 +161,8 @@ export function BatchCard({ st }: { st: State }) {
               : x.got && b.decimals != null
                 ? `Bought ${formatUnits(BigInt(x.got), b.decimals, 4)} ${b.symbol ?? ""}`.trim()
                 : "Bought";
-      return (
-        <span className="vw-ok">
-          {text}
-          {x.sig && net && (
-            <>
-              {" · "}
-              <CopyLink sig={x.sig} network={net} />
-            </>
-          )}
-        </span>
-      );
+      // (its link sits in a cell of its own beside it, a full-size target: see the row)
+      return <span className="vw-ok">✓ {text}</span>;
     }
     if (x.status === "failed") {
       const why = x.error ?? "no reason given";
@@ -198,14 +190,23 @@ export function BatchCard({ st }: { st: State }) {
             <span className="batch-name">{itemName(x)}</span>
             <span className="batch-amt num">{amount(x)}</span>
             <span className="batch-st small">{status(x, k)}</span>
+            {x.status === "done" && x.sig && net && (
+              <span className="batch-link small">
+                <CopyLink sig={x.sig} network={net} label="Copy link" />
+              </span>
+            )}
           </li>
         ))}
       </ul>
       {/* the three things the foot can say share one place, as tall as the tallest, so the card never changes height as it goes */}
       <div className="batch-foot">
         <div className="batch-say">
-          <p className={`small${mode === "paused" ? "" : " ghost"}`} aria-hidden={mode !== "paused"}>
-            {checking ? "Checking where it got to before anything else happens…" : "Nothing more happens until you continue. Wallets that haven't had their turn keep what they hold."}
+          <p className={`small${mode === "paused" ? "" : " ghost"}${mode === "paused" && b.hold ? " warn" : ""}`} aria-hidden={mode !== "paused"} role={mode === "paused" && b.hold ? "status" : undefined}>
+            {checking
+              ? "Checking where it got to before anything else happens…"
+              : b.hold
+                ? `${b.hold.text} Nothing more happens until you choose. To change the amounts, stop the rest and start a new batch with the wallets left.`
+                : "Nothing more happens until you continue. Wallets that haven't had their turn keep what they hold."}
           </p>
           <p className={`tiny${mode === "run" ? "" : " ghost"}`} aria-hidden={mode !== "run"}>
             Keep this page open while it runs. If you close it, wallets that haven't gone yet simply keep their SOL, and you can continue next time.
@@ -222,10 +223,10 @@ export function BatchCard({ st }: { st: State }) {
         ) : mode === "paused" ? (
           <div className="batch-acts">
             <button type="button" className="btn violet small-btn" disabled={!!st.update} onClick={() => engine.continueBatch()}>
-              Continue
+              {continueLabel(b.hold)}
             </button>
             <button type="button" className="link-btn" onClick={() => engine.stopBatch()}>
-              Stop
+              {b.hold ? "Stop the rest" : "Stop"}
             </button>
           </div>
         ) : mode === "run" ? (

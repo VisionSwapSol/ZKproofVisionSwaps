@@ -15,12 +15,22 @@ export function chunk<T>(list: T[], size: number): T[][] {
 
 export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-/** A whole number from lo to hi (both included), from the secure random source. */
+/** A whole number from lo to hi (both included), uniform, from the secure random source (draws that would bias it are thrown away). */
 export function randInt(lo: number, hi: number): number {
   if (hi <= lo) return lo;
   const span = hi - lo + 1;
-  const x = crypto.getRandomValues(new Uint32Array(1))[0];
-  return lo + (x % span);
+  const limit = Math.floor(0x1_0000_0000 / span) * span;
+  const buf = new Uint32Array(1);
+  for (;;) {
+    const x = crypto.getRandomValues(buf)[0];
+    if (x < limit) return lo + (x % span);
+  }
+}
+
+/** A number in [0, 1) from the secure random source (53 bits): used wherever Math.random would be. */
+export function secureRandom(): number {
+  const [hi, lo] = crypto.getRandomValues(new Uint32Array(2));
+  return (hi * 2 ** 21 + (lo >>> 11)) / 2 ** 53;
 }
 
 export function shuffle<T>(list: T[]): T[] {

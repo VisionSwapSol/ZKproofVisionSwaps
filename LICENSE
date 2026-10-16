@@ -1,0 +1,34 @@
+VisionSwap
+Copyright (c) 2026 VisionSwap
+
+This repository contains parts under different licenses. Each part is
+licensed as follows.
+
+program/
+    Business Source License 1.1, with the parameters set out in
+    program/LICENSE (Licensor: VisionSwap; Change Date: 2030-10-16;
+    Change License: GNU General Public License v3.0 or later).
+
+circuits/, sdk/, web/, extension/
+    GNU General Public License v3.0 or later (GPL-3.0-or-later). The full
+    text is in LICENSE-GPL.
+
+release/, scripts/, docs/ and everything else not listed here
+    GNU General Public License v3.0 or later (GPL-3.0-or-later), see
+    LICENSE-GPL, unless a file says otherwise.
+
+server/
+    This folder holds only data files used by the tests in this repository
+    (the circuit's public verification key and a test proof), under
+    GPL-3.0-or-later. The VisionSwap service itself is not part of this
+    repository.
+
+Name, logo and brand assets
+    The VisionSwap name, logo and brand assets, including brand/, the icons
+    and images in web/public and extension/icons, and the media posters in
+    web/public/media, are not licensed for use under any of the licenses
+    above. All rights reserved.
+
+Third-party components
+    The web fonts in web/public/fonts and the packages this repository
+    depends on remain under their own licenses.

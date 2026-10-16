@@ -3,7 +3,9 @@ import bs58 from "bs58";
 import { API } from "./config";
 import { sleep } from "./poll";
 import { normAmount } from "./amount";
-import { chainError } from "./chainerr";
+import { chainError, refusedForSure } from "./chainerr";
+import { termsHeader } from "./terms";
+import { noteRegionRefusal } from "./region";
 
 /**
  * Every network call goes to the VisionSwap server: RPC, Jupiter, token
@@ -13,9 +15,22 @@ import { chainError } from "./chainerr";
  */
 const rpcUrl = () => `${API || location.origin}/api/rpc`;
 
+/**
+ * The chain gateway's own fetch: each call carries the Terms version accepted here (see api()), and a
+ * transaction refused for the region (HTTP 451) switches the app to its restricted-region screen once
+ * the server confirms it (region.ts).
+ */
+const gatewayFetch: typeof fetch = async (input, init) => {
+  const headers = new Headers(init?.headers);
+  for (const [k, v] of Object.entries(termsHeader())) headers.set(k, v);
+  const r = await fetch(input, { ...init, headers });
+  if (r.status === 451) noteRegionRefusal(451, await r.clone().json().catch(() => undefined), API);
+  return r;
+};
+
 let _conn: Connection | null = null;
 export function conn(): Connection {
-  if (!_conn) _conn = new Connection(rpcUrl(), { commitment: "confirmed", disableRetryOnRateLimit: false });
+  if (!_conn) _conn = new Connection(rpcUrl(), { commitment: "confirmed", disableRetryOnRateLimit: false, fetch: gatewayFetch });
   return _conn;
 }
 
@@ -33,11 +48,19 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * A request to VisionSwap's server. Once the Terms are accepted on this device, every request carries
+ * x-vs-terms: the major version accepted ("2"), the same for everyone who accepted it, and nothing
+ * else from the acceptance record. A refusal for the region (HTTP 451) switches the app to its
+ * restricted-region screen once the server confirms it (region.ts).
+ */
 export async function api<T>(path: string, init?: RequestInit & { json?: unknown }): Promise<T> {
+  const headers = new Headers(init?.json !== undefined ? { "content-type": "application/json" } : init?.headers);
+  for (const [k, v] of Object.entries(termsHeader())) headers.set(k, v);
   const r = await fetch(`${API}${path}`, {
     ...init,
     method: init?.json !== undefined ? "POST" : (init?.method ?? "GET"),
-    headers: init?.json !== undefined ? { "content-type": "application/json" } : init?.headers,
+    headers,
     body: init?.json !== undefined ? JSON.stringify(init.json) : init?.body,
   });
   const text = await r.text();
@@ -48,6 +71,7 @@ export async function api<T>(path: string, init?: RequestInit & { json?: unknown
     /* not JSON */
   }
   if (!r.ok) {
+    if (r.status === 451) noteRegionRefusal(451, j, API);
     const msg = (j as { error?: string } | null)?.error ?? `Request failed (${r.status})`;
     // a missing or odd header (a date, garbage) means "not said", never "retry now"
     const wait = Number(r.headers.get("retry-after"));
@@ -57,11 +81,28 @@ export async function api<T>(path: string, init?: RequestInit & { json?: unknown
   return j as T;
 }
 
-export async function apiBinary(path: string): Promise<{ data: Uint8Array; total: number }> {
+/**
+ * A lookup that carries a token, an amount, an address or a search word: sent in a POST body, so it
+ * never sits in a URL (the hosting front end logs URLs with their query strings). A server from
+ * before POST lookups answers 404 or 405: then, for this one release, it is asked by GET as before.
+ */
+export async function lookup<T>(path: string, params: Record<string, string | number>): Promise<T> {
+  try {
+    return await api<T>(path, { json: params });
+  } catch (e) {
+    if (!(e instanceof ApiError) || (e.status !== 404 && e.status !== 405)) throw e;
+    const qs = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)]));
+    return api<T>(`${path}?${qs}`);
+  }
+}
+
+export async function apiBinary(path: string): Promise<{ data: Uint8Array; total: number; complete: boolean }> {
   const r = await fetch(`${API}${path}`);
   if (!r.ok) throw new ApiError(`Request failed (${r.status})`, r.status);
   const total = Number(r.headers.get("X-Total") ?? "0");
-  return { data: new Uint8Array(await r.arrayBuffer()), total };
+  // (a list built up over time says when it holds the whole history: see /api/pool/addresses)
+  const complete = r.headers.get("X-Complete") !== "0";
+  return { data: new Uint8Array(await r.arrayBuffer()), total, complete };
 }
 
 export { chainError, failedProgram, setPoolProgram } from "./chainerr";
@@ -85,16 +126,6 @@ export function signatureOf(tx: Transaction | VersionedTransaction): string {
   const s = tx instanceof VersionedTransaction ? tx.signatures[0] : tx.signature;
   if (!s) throw new Error("The transaction isn't signed.");
   return bs58.encode(s);
-}
-
-/** True when the network certainly refused the transaction before it could run (it was never sent on). */
-function refusedForSure(e: unknown): boolean {
-  const err = e as { message?: string; logs?: string[] };
-  const m = err?.message ?? "";
-  return (
-    (Array.isArray(err?.logs) && err.logs.length > 0) ||
-    /simulation failed|custom program error|insufficient (funds|lamports)|blockhash not found|no record of a prior credit|invalid (account|transaction)|signature verification/i.test(m)
-  );
 }
 
 /**

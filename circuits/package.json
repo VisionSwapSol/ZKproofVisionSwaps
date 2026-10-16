@@ -7,7 +7,11 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "setup": "node scripts/setup.mjs",
-    "test": "node scripts/test.mjs"
+    "test": "node scripts/verify-ceremony.mjs --final artifacts/transaction.zkey --transcript artifacts/TRANSCRIPT.json",
+    "contribute": "node scripts/contribute.mjs",
+    "verify-ceremony": "node scripts/verify-ceremony.mjs",
+    "ceremony": "node scripts/coordinator.mjs",
+    "ceremony:rehearse": "node scripts/ceremony-selftest.mjs"
   },
   "dependencies": {
     "circomlib": "2.0.5",

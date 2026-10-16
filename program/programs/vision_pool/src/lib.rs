@@ -7,7 +7,7 @@
 //! with a Groth16 proof; the program pays the recipient, the relayer and the
 //! protocol fee, records the nullifiers and appends the new notes.
 //!
-//! Nobody, including the admin, can move settled funds or pause spending.
+//! No admin setting moves settled funds; but spends and settles need `config.treasury` writable (VS-07).
 
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{
@@ -30,7 +30,7 @@ pub const ROOT_HISTORY: usize = 256;
 pub const META_LEN: usize = 28;
 /// The protocol fee can never be set above 1%.
 pub const MAX_FEE_BPS: u16 = 100;
-/// The waiting room can never be longer than about a week.
+/// Longest waiting room: 7 days at 400 ms slots, about 3.5 days at 200 ms (SIMD-0525).
 pub const MAX_DELAY_SLOTS: u64 = 1_512_000;
 pub const ATTESTATION_TAG: &[u8; 4] = b"VSA1";
 

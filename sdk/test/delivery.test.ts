@@ -12,6 +12,8 @@ import {
   Transaction,
   SYSVAR_RECENT_BLOCKHASHES_PUBKEY,
   ComputeBudgetProgram,
+  VersionedMessage,
+  VersionedTransaction,
 } from "@solana/web3.js";
 import {
   keysFromMaster,
@@ -38,11 +40,20 @@ import {
   classifyRecipient,
   recipientVerdict,
   RESERVED_ADDRESSES,
+  RUNTIME_RESERVED_KEYS,
   lookalike,
   ownMessage,
   hopLookupMessage,
   sameDeliveryTerms,
   DELIVERY_V,
+  FIXED_SHAPE,
+  SHAPE_BAND,
+  priceFor,
+  shapeOk,
+  randomShape,
+  readShape,
+  shapeJson,
+  type DeliveryShape,
 } from "../src/index.ts";
 
 const keys = keysFromMaster(new Uint8Array(32).fill(7));
@@ -253,6 +264,12 @@ test("recipients: wallets go, addresses only a program signs for are confirmed, 
   assert.equal(classifyRecipient(wallet, acct({}), new Set([wallet.toBase58()])), "reserved", "the pool's own addresses");
   // every reserved address is a real one
   for (const a of RESERVED_ADDRESSES) assert.equal(new PublicKey(a).toBase58(), a);
+  // all 31 of the runtime's reserved keys are refused (a delivery to one could never land)
+  assert.equal(new Set(RUNTIME_RESERVED_KEYS).size, 31);
+  for (const a of RUNTIME_RESERVED_KEYS) {
+    assert.ok(RESERVED_ADDRESSES.includes(a), a);
+    assert.equal(classifyRecipient(new PublicKey(a), null), "reserved", a);
+  }
 });
 
 test("a lookalike of a recent recipient is caught; the same address isn't", () => {
@@ -284,4 +301,109 @@ test("random keys and amounts always give a message the library reads back the s
     const back = Transaction.populate(Message.from(m));
     assert.equal(SystemInstruction.decodeTransfer(back.instructions[2]).lamports, lam);
   }
+});
+
+// ─── shapes the sender picks ───
+
+/** The compute limit and price a message asks for, and its format, read back by Solana's own library. */
+function budgetOf(m: Uint8Array) {
+  const msg = VersionedMessage.deserialize(m);
+  const keys = msg.staticAccountKeys;
+  let units = 0;
+  let price = 0n;
+  for (const ix of msg.compiledInstructions) {
+    if (!keys[ix.programIdIndex].equals(ComputeBudgetProgram.programId)) continue;
+    if (ix.data[0] === 2) units = new DataView(ix.data.buffer, ix.data.byteOffset).getUint32(1, true);
+    if (ix.data[0] === 3) price = new DataView(ix.data.buffer, ix.data.byteOffset).getBigUint64(1, true);
+  }
+  return { msg, units, price };
+}
+
+test("a delivery that names no shape is the fixed one, byte for byte, and naming the fixed shape changes nothing", () => {
+  const l1 = { hop: hop.publicKey, to, lamports, blockhash };
+  const n2 = { hop: hop.publicKey, to, lamports, nonceAccount, authority: authority.publicKey, nonce };
+  assert.deepEqual(l1Message({ ...l1, shape: FIXED_SHAPE }), l1Message(l1));
+  assert.deepEqual(n2Message({ ...n2, shape: FIXED_SHAPE }), n2Message(n2));
+  assert.equal(priceFor(DELIVERY_CU, DELIVERY_FEE - 5_000n), DELIVERY_PRICE_L1);
+  assert.equal(priceFor(DELIVERY_CU, DELIVERY_FEE - 10_000n), DELIVERY_PRICE_N2);
+  assert.equal(shapeOk(FIXED_SHAPE), true);
+});
+
+test("every shape in the band costs the hop exactly its fee, for L1 and N2 alike", () => {
+  let x = 7;
+  const rand = () => {
+    x = (x * 48271) % 2147483647;
+    return x / 2147483647;
+  };
+  const seenV0 = new Set<boolean>();
+  for (let i = 0; i < 2_000; i++) {
+    const s = randomShape(rand);
+    assert.ok(shapeOk(s), JSON.stringify(shapeJson(s)));
+    seenV0.add(s.v0);
+    const a = budgetOf(l1Message({ hop: hop.publicKey, to, lamports, blockhash, shape: s }));
+    assert.equal(a.units, s.cuL1);
+    assert.equal(deliveryFeeOf(1, Number(a.price), a.units), s.fee, `L1 ${JSON.stringify(shapeJson(s))}`);
+    const b = budgetOf(n2Message({ hop: hop.publicKey, to, lamports, nonceAccount, authority: authority.publicKey, nonce, shape: s }));
+    assert.equal(b.units, s.cuN2);
+    assert.equal(deliveryFeeOf(2, Number(b.price), b.units), s.fee, `N2 ${JSON.stringify(shapeJson(s))}`);
+    assert.equal(a.msg.version === 0, s.v0);
+  }
+  assert.equal(seenV0.size, 2, "both formats are drawn");
+  // the band's edges, every limit in it
+  for (let cu = SHAPE_BAND.cuMin; cu <= SHAPE_BAND.cuMax; cu += 37) {
+    for (const fee of [SHAPE_BAND.feeMin, 12_345n, SHAPE_BAND.feeMax]) {
+      assert.equal(deliveryFeeOf(1, priceFor(cu, fee - 5_000n), cu), fee);
+      assert.equal(deliveryFeeOf(2, priceFor(cu, fee - 10_000n), cu), fee);
+    }
+  }
+});
+
+test("a v0 delivery is the same transfer, read back by Solana's own library, and a hop's signature over it holds", () => {
+  const s: DeliveryShape = { fee: 15_000n, cuL1: 3_000, cuN2: 4_200, v0: true };
+  const m = l1Message({ hop: hop.publicKey, to, lamports, blockhash, shape: s });
+  const msg = VersionedMessage.deserialize(m);
+  assert.equal(msg.version, 0);
+  assert.deepEqual(Buffer.from(msg.serialize()), Buffer.from(m), "round trip");
+  assert.deepEqual(msg.addressTableLookups, []);
+  assert.deepEqual(msg.staticAccountKeys.map((k) => k.toBase58()), [hop.publicKey, to, SystemProgram.programId, ComputeBudgetProgram.programId].map((k) => k.toBase58()));
+  assert.equal(msg.recentBlockhash, blockhash);
+  const raw = deliveryTransaction(m, [signDelivery(m, hop)]);
+  const tx = VersionedTransaction.deserialize(raw);
+  assert.equal(ed25519.verify(tx.signatures[0], tx.message.serialize(), hop.publicKey.toBytes()), true);
+  const transfer = tx.message.compiledInstructions[2];
+  assert.deepEqual(Buffer.from(transfer.data), SystemProgram.transfer({ fromPubkey: hop.publicKey, toPubkey: to, lamports }).data);
+  // N2 as v0: the nonce advance first, the authority a read-only signer
+  const n = n2Message({ hop: hop.publicKey, to, lamports, nonceAccount, authority: authority.publicKey, nonce, shape: s });
+  const nm = VersionedMessage.deserialize(n);
+  assert.equal(nm.version, 0);
+  assert.equal(nm.recentBlockhash, nonce);
+  assert.equal(nm.isAccountSigner(1) && !nm.isAccountWritable(1), true);
+  const ntx = VersionedTransaction.deserialize(deliveryTransaction(n, [signDelivery(n, hop), signDelivery(n, authority)]));
+  assert.equal(ntx.signatures.length, 2);
+  assert.throws(() => deliveryTransaction(n, [signDelivery(n, hop)]), /number of signatures/);
+  // a v0 message and the legacy one sign different bytes
+  assert.notDeepEqual(l1Message({ hop: hop.publicKey, to, lamports, blockhash, shape: { ...s, v0: false } }), m);
+});
+
+test("shapes outside the band are refused, on the wire and when building", () => {
+  const ok = { fee: "15000", cuL1: 3000, cuN2: 3000, v0: false };
+  assert.deepEqual(readShape(ok), { fee: 15_000n, cuL1: 3000, cuN2: 3000, v0: false });
+  assert.equal(readShape(undefined), undefined);
+  for (const bad of [
+    { ...ok, fee: "10999" },
+    { ...ok, fee: "30001" },
+    { ...ok, fee: 15000 },
+    { ...ok, cuL1: 1199 },
+    { ...ok, cuN2: 8001 },
+    { ...ok, cuL1: 2000.5 },
+    { ...ok, v0: "yes" },
+    { ...ok, fee: "1e5" },
+    "15000",
+  ]) {
+    assert.throws(() => readShape(bad), /bad delivery shape/, JSON.stringify(bad));
+  }
+  assert.throws(() => l1Message({ hop: hop.publicKey, to, lamports, blockhash, shape: { fee: 50_000n, cuL1: 3000, cuN2: 3000, v0: false } }), /bad delivery shape/);
+  // the withdraw follows the shape's fee
+  const w = deliveryWithdraw(1_000_000n, 1_500_000n, 80, undefined, 15_000n);
+  assert.equal(predictCredit(w, 1_500_000n, 80), 1_015_000n);
 });

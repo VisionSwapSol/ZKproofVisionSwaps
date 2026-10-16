@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { Header } from "../components/Header";
 import { Footer } from "../components/Footer";
 import { Icon, type IconName } from "../components/Icon";
@@ -17,10 +17,10 @@ const PHASES: Phase[] = [
     items: [
       ["A zero-knowledge shielded pool written from scratch for Solana", "done"],
       ["Private-transaction circuit: two notes in, two out, 64-bit amounts", "done"],
-      ["Public trusted setup, sealed with a Bitcoin block beacon", "done"],
+      ["Trusted setup on the public Powers of Tau, with a phase two completed by the VisionSwap team and sealed with a Bitcoin block beacon, its record kept in the public proving key", "done"],
       ["Proof-free deposits: the program builds every note on-chain", "done"],
       ["A relayer that keeps your wallet out of every spend", "done"],
-      ["Note discovery on your device, so no server learns which notes are yours", "done"],
+      ["Note discovery on your device: everyone downloads the same notes and finds their own", "done"],
     ],
   },
   {
@@ -64,6 +64,7 @@ const PHASES: Phase[] = [
       ["Fair-share limits that keep trades moving when the site is busy", "done"],
       ["Split payments to up to 20 people, and one payment link per payer", "done"],
       ["Strict content security policy and device-sealed keys", "done"],
+      ["Payments from your wallet in standard deposit sizes, with the change kept private", "done"],
       ["$VSWAP buyback and burn, with holder cashback on trading fees", "now"],
       ["Deposits of any size, with no per-deposit limit", "now"],
     ],
@@ -89,22 +90,22 @@ const FIRSTS: { icon: IconName; title: string; text: string }[] = [
   { icon: "swap", title: "Any token, privately", text: "Buy and sell anything Jupiter can route, not a short list of pool tokens." },
   { icon: "wallet", title: "Tokens in a wallet you own", text: "Purchases land in a standard Solana wallet you can export, not locked inside a pool or an app." },
   { icon: "undo", title: "Deposits you can take back", text: "Every deposit waits in a screened waiting room and can be cancelled, fee included, until it joins." },
-  { icon: "shield", title: "Screening that follows the money", text: "Each deposit is checked against sanctions lists, along with the wallets that funded it." },
+  { icon: "shield", title: "Screening that follows the money", text: "Each deposit is checked against the U.S. sanctions list, along with the wallets that funded it." },
   { icon: "qr", title: "Shield from any wallet or exchange", text: "QR-code deposits to an address only your account controls. No wallet connection needed." },
   { icon: "key", title: "No wallet required", text: "Open a private account with a private key that works on any device." },
   { icon: "eyeOff", title: "Balances nobody else can see", text: "Your balance lives in sealed notes that only your keys can read. It never appears on-chain." },
-  { icon: "relay", title: "Your wallet never appears", text: "A relayer submits every private send and Vision wallet funding, with the details sealed in the proof." },
+  { icon: "relay", title: "Your wallet never appears", text: "A relayer submits every private send and Vision wallet funding, with the details bound into the proof." },
   { icon: "proof", title: "Our own zero-knowledge pool", text: "Built from scratch for Solana: Groth16 proofs on BN254 with Poseidon hashing, verified on-chain." },
-  { icon: "spark", title: "Public trusted setup", text: "Perpetual Powers of Tau plus three phase-2 contributions, sealed with a Bitcoin block beacon." },
+  { icon: "spark", title: "A two-phase trusted setup", text: "Built on the public Perpetual Powers of Tau, with a phase two completed by the VisionSwap team and sealed with a Bitcoin block beacon. Its record is part of the public proving key." },
   { icon: "bolt", title: "Proof-free deposits", text: "Shielding needs no proof: the program computes each note itself, so deposits are fast and simple." },
-  { icon: "lock", title: "Non-custodial and unfreezable", text: "As the program stands, no admin setting can move, freeze or redirect funds, and private sends can't be paused." },
+  { icon: "lock", title: "Non-custodial", text: "Funds leave the vault only against a valid proof, or back to the depositor from the waiting room. No admin setting can move or redirect them; an upgrade to the program could change those rules." },
   { icon: "chart", title: "Fees enforced on-chain", text: "0.8% per action, with a hard cap of 1% written into the program." },
   { icon: "radar", title: "Built-in exposure check", text: "See what any wallet reveals: holdings, first funder, counterparties and active hours." },
-  { icon: "doc", title: "Statements with viewing keys", text: "Prove where funds came from to an exchange or accountant, without handing over control." },
-  { icon: "server", title: "Nothing leaks to third parties", text: "Every chain, price and token request goes through VisionSwap. No logs, and explorer links are copy-only." },
+  { icon: "doc", title: "Statements with viewing keys", text: "Show an exchange or accountant your notes and, for deposits, the wallets that made them, without handing over control." },
+  { icon: "server", title: "No third-party calls from your browser", text: "Every chain, price and token request goes through VisionSwap's server, so outside services never see your IP. Our software logs no IP or wallet addresses." },
   { icon: "check", title: "A program you can verify", text: "The live program's code fingerprint is published in the Docs for anyone to check." },
   { icon: "devices", title: "Works everywhere you trade", text: "Every major Solana wallet, on desktop and mobile. No extension, no download." },
-  { icon: "crosshair", title: "Private orders", text: "Limit buys, DCA, take-profit in steps, stop-loss and trailing stops, each from a Vision wallet that nothing on-chain ties to you." },
+  { icon: "crosshair", title: "Private orders", text: "Limit buys, DCA, take-profit in steps, stop-loss and trailing stops, each from a Vision wallet funded from the pool instead of from your wallet." },
   { icon: "repeat", title: "Payments on a random clock", text: "Schedule a payment and it leaves at an unpredictable moment, so it is much harder to tie to your deposit by timing." },
   { icon: "steps", title: "Limits that hold", text: "A limit buy never pays more than your price, and a take-profit step never sells for less than its own per token traded." },
   { icon: "trend", title: "Stop-losses first", text: "Confirmed on a fresh price, then first in line with a higher network priority." },
@@ -117,9 +118,6 @@ const STATUS: Record<Item[1], string> = { done: "Done", now: "In progress", next
 export default function RoadmapPage() {
   const root = useRef<HTMLDivElement>(null);
   useRise(root);
-  useEffect(() => {
-    document.title = "VisionSwap · Roadmap";
-  }, []);
   return (
     <div ref={root} className="page roadmap">
       <Header />

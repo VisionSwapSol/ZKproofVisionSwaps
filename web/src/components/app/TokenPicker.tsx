@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { api } from "../../lib/net";
+import { api, lookup } from "../../lib/net";
+import { API } from "../../lib/config";
+import { IS_EXTENSION } from "../../lib/platform";
 
 export type Token = {
   mint: string;
@@ -13,20 +15,60 @@ export type Token = {
   mcap?: number | null;
   liquidity?: number | null;
   program?: string | null;
+  /** when it was created (ms), its price change over the last hour (pct), its launchpad: for the warnings before a batch */
+  created?: number | null;
+  change1h?: number | null;
+  launchpad?: string | null;
 };
 
 const SOL_MINT = "So11111111111111111111111111111111111111112";
 
+/**
+ * In the extension, a token icon is read from the VisionSwap server with fetch and shown from a local
+ * copy: the server serves its images to its own pages only, and the extension's pages talk to nothing
+ * but that server. On the website the icon's own address is used, as always.
+ */
+const extIcons = new Map<string, Promise<string | null>>();
+function useExtIcon(icon: string | null | undefined): string | null {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    if (!IS_EXTENSION) return;
+    setSrc(null);
+    if (!icon) return;
+    let dead = false;
+    if (!extIcons.has(icon)) {
+      extIcons.set(
+        icon,
+        icon.startsWith("data:")
+          ? Promise.resolve(icon)
+          : icon.startsWith("/")
+            ? fetch(`${API}${icon}`)
+                .then((r) => (r.ok ? r.blob() : null))
+                .then((b) => (b && b.type.startsWith("image/") ? URL.createObjectURL(b) : null))
+                .catch(() => null)
+            : Promise.resolve(null),
+      );
+    }
+    void extIcons.get(icon)!.then((u) => !dead && setSrc(u));
+    return () => {
+      dead = true;
+    };
+  }, [icon]);
+  return src;
+}
+
 export function TokenIcon({ t, size = 28 }: { t: Pick<Token, "icon" | "symbol"> | null; size?: number }) {
   const [broken, setBroken] = useState(false);
+  const ext = useExtIcon(t?.icon);
   if (!t) return <span className="tok-icon empty" style={{ width: size, height: size }} />;
-  if (!t.icon || broken)
+  const icon = IS_EXTENSION ? ext : t.icon;
+  if (!icon || broken)
     return (
       <span className="tok-icon mono" style={{ width: size, height: size, fontSize: size * 0.38 }}>
         {t.symbol.slice(0, 3)}
       </span>
     );
-  return <img className="tok-icon" src={t.icon} alt="" width={size} height={size} onError={() => setBroken(true)} loading="lazy" />;
+  return <img className="tok-icon" src={icon} alt="" width={size} height={size} onError={() => setBroken(true)} loading="lazy" />;
 }
 
 export function TokenPicker({ value, onChange }: { value: Token | null; onChange: (t: Token) => void }) {
@@ -74,7 +116,7 @@ export function TokenPicker({ value, onChange }: { value: Token | null; onChange
       setLoading(true);
       setErr(null);
       try {
-        const r = asked ? await api<Token[]>(`/api/tokens/search?q=${encodeURIComponent(asked)}`) : await api<Token[]>("/api/tokens/top");
+        const r = asked ? await lookup<Token[]>("/api/tokens/search", { q: asked }) : await api<Token[]>("/api/tokens/top");
         if (!dead) {
           setList({ forQ: asked, items: r.filter((x) => x.mint !== SOL_MINT).slice(0, 40) });
           setActive(0);

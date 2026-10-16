@@ -3,7 +3,7 @@ name = "vision_pool"
 version = "1.0.0"
 description = "VisionSwap shielded SOL pool"
 edition = "2021"
-license = "Apache-2.0"
+license = "BUSL-1.1"
 
 [lib]
 crate-type = ["cdylib", "lib"]

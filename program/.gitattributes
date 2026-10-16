@@ -1,0 +1,3 @@
+# Check out the program's files exactly as committed, whatever core.autocrlf says:
+# release records fingerprint these bytes (program/BUILD.md).
+* -text
